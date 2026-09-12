@@ -865,19 +865,72 @@ function resetFootballKickoff(state, W, H){
   state.gx = W * 0.86;
   state.gh = H * 0.38;
   state.ball = {x: W * 0.46 + (R() - 0.5) * 40, y: H * 0.5 + (R() - 0.5) * 40, vx: 0, vy: 0, r: 8.5};
+  // Formation: Fixed Line always deals the center face-off; Random Each
+  // Episode (Formation selector) samples a fresh shape every kickoff from
+  // the seeded RNG, so trials and replays stay reproducible per seed.
+  const fmNames = ['faceoff', 'line', 'spread', 'arc', 'cluster', 'wings'];
+  const fmMode = g('p_fm') || 'fixed';
+  const fm = fmMode === 'random' ? fmNames[Math.floor(R() * fmNames.length)] : 'faceoff';
+  state.formation = fm;
+  const bx = W * 0.46, by = H * 0.5;
+  function shapePos(side, i){
+    const t = nTeam > 1 ? (i - (nTeam - 1) / 2) / ((nTeam - 1) / 2) : 0; // -1..1
+    const s = side === 'west' ? -1 : 1;
+    if(fm === 'spread') return [bx + s * (130 + (i % 2) * 60), by + t * 130];
+    if(fm === 'arc'){
+      const a = (s < 0 ? Math.PI : 0) + t * 0.7;
+      return [bx + Math.cos(a) * 95, by + Math.sin(a) * 95];
+    }
+    if(fm === 'cluster') return [bx + s * 45 + (R() - 0.5) * 70, by + (R() - 0.5) * 90];
+    if(fm === 'wings'){
+      const wy = (i % 2 === 0 ? 1 : -1) * (H / 2 - 60);
+      return [bx + s * (60 + Math.floor(i / 2) * 70), wy];
+    }
+    if(fm === 'line') return [bx + s * 150, by + t * 120];
+    return [bx + s * 55, by + (i - (nTeam - 1) / 2) * 70]; // faceoff
+  }
+  const rawW = [], rawE = [];
+  for(let i = 0; i < nTeam; i++){
+    const pw = shapePos('west', i), pe = shapePos('east', i);
+    rawW.push([pw[0] + (R() - 0.5) * 24, pw[1] + (R() - 0.5) * 24]);
+    rawE.push([pe[0] + (R() - 0.5) * 24, pe[1] + (R() - 0.5) * 24]);
+  }
+  // Clip inside the pitch and spread overlaps (min 40px), both teams together.
+  const all = rawW.concat(rawE);
+  function clipPts(){
+    for(const p of all){
+      p[0] = Math.max(40, Math.min(W - 40, p[0]));
+      p[1] = Math.max(48, Math.min(H - 48, p[1]));
+    }
+  }
+  clipPts();
+  for(let k = 0; k < 25; k++){
+    let moved = false;
+    for(let i = 0; i < all.length; i++) for(let j = i + 1; j < all.length; j++){
+      let dx = all[i][0] - all[j][0], dy = all[i][1] - all[j][1];
+      let d = Math.sqrt(dx * dx + dy * dy);
+      if(d < 40){
+        moved = true;
+        if(d < 0.01){ dx = 1; dy = 0; d = 1; }
+        const push = (40 - d) / 2 + 0.5, ux = dx / d, uy = dy / d;
+        all[i][0] += ux * push; all[i][1] += uy * push;
+        all[j][0] -= ux * push; all[j][1] -= uy * push;
+      }
+    }
+    clipPts();
+    if(!moved) break;
+  }
   state.attackers = [];
   // West line: just west of the center spot, spread vertically, facing east.
   for(let i = 0; i < nTeam; i++){
-    state.attackers.push({x: W * 0.46 - 55 + (R() - 0.5) * 24,
-      y: H * 0.5 + (i - (nTeam - 1) / 2) * 70 + (R() - 0.5) * 24,
+    state.attackers.push({x: all[i][0], y: all[i][1],
       angle: -Math.PI / 2, wing: R() * 6, leg: R() * 6, num: i + 1});
   }
   state.goalies = [];
   // East line: just east of the center spot, facing west. #1 takes the
   // middle of the line and plays as a chaser like every other fly.
   for(let i = 0; i < nTeam; i++){
-    state.goalies.push({x: W * 0.46 + 55 + (R() - 0.5) * 24,
-      y: H * 0.5 + (i - (nTeam - 1) / 2) * 70 + (R() - 0.5) * 24,
+    state.goalies.push({x: all[nTeam + i][0], y: all[nTeam + i][1],
       angle: Math.PI / 2, wing: R() * 6, leg: R() * 6,
       num: i + 1, keeper: i === 0});
   }
