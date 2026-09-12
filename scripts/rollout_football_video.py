@@ -25,7 +25,7 @@ if str(_ROOT) not in sys.path:
 try:  # `python -m scripts.rollout_football_video`
     from .football_policy import flatten_obs, linear_action, load_policy
 except ImportError:  # `python scripts/rollout_football_video.py`
-    from football_policy import flatten_obs, linear_action, load_policy
+    from .football_policy import flatten_obs, linear_action, load_policy
 
 import numpy as np
 import imageio.v2 as imageio

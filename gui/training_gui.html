@@ -117,11 +117,8 @@
     .res-side-lbl{font-size:.67rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.07em}
     .loga-r{background:#06080f;border:1px solid var(--border);border-radius:8px;padding:8px 11px;font-family:'JetBrains Mono',monospace;font-size:.68rem;color:var(--text-secondary);flex:1;overflow-y:auto;line-height:1.8;min-height:80px}
     /* ===== Results Modal styles (now tab) ===== */
-    .rec-ind{display:none;align-items:center;gap:5px;font-size:.68rem;color:#ef4444;font-weight:700;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:4px 9px;white-space:nowrap}
     .res-hdr{display:flex;align-items:center;gap:9px;flex-shrink:0;flex-wrap:wrap;border-bottom:1px solid var(--border);padding-bottom:12px}
     .res-hdr h2{font-size:.95rem;font-weight:700;flex:1;min-width:140px;display:flex;align-items:center;gap:8px}
-    .rec-ind{display:none;align-items:center;gap:5px;font-size:.68rem;color:#ef4444;font-weight:700;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:4px 9px;white-space:nowrap}
-    .rec-pulse{width:7px;height:7px;border-radius:50%;background:#ef4444;animation:pulse 1s infinite;flex-shrink:0}
     .done-badge{display:none;align-items:center;gap:5px;background:rgba(34,197,94,.13);border:1px solid var(--accent-green);border-radius:8px;padding:5px 11px;font-size:.72rem;color:var(--accent-green);font-weight:600;white-space:nowrap}
     .charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
     .chart-card{background:var(--bg-card);border:1px solid var(--border);border-radius:11px;padding:11px 12px;display:flex;flex-direction:column;gap:6px;transition:border-color .2s}
@@ -161,7 +158,6 @@
     <button class="mtab active" data-tab="config" onclick="switchMainTab('config')">&#9881;&#65039; Configure <span class="mbadge" id="cfgBadge">Ready</span></button>
     <button class="mtab" data-tab="results" onclick="switchMainTab('results')">&#128202; Results <span class="mbadge" id="resBadge">—</span></button>
     <div class="mtab-sep"></div>
-    <div class="rec-ind" id="recIndicator" style="margin-right:4px"><span class="rec-pulse"></span> REC</div>
     <div class="done-badge" id="trainingDoneMsg">&#10003; Training Complete</div>
   </div>
   <!-- ===== Configure Pane ===== -->
@@ -323,7 +319,6 @@
       <button class="btn bpri" id="launchBtn2" onclick="launch()" style="padding:6px 14px;font-size:.75rem">&#128640; Launch Training</button>
       <button class="btn bdng" onclick="stopT()" id="stopBtn2" style="padding:6px 12px;font-size:.75rem;display:none">&#9632; Stop</button>
       <button class="btn bsec" onclick="playbackAll()" style="padding:6px 12px;font-size:.75rem">&#9654;&#65039; Replay</button>
-      <a class="btn bsec" id="downloadBtn" style="padding:6px 12px;font-size:.75rem;text-decoration:none" href="#" download>&#11015; Download Video</a>
       <button class="btn bsec" onclick="switchMainTab('config')" style="padding:6px 12px;font-size:.75rem">&#9881;&#65039; Configure</button>
     </div>
     <!-- Stats bar -->
@@ -362,21 +357,16 @@
     .rp-dl{color:#5b7fff;font-size:.68rem;text-decoration:none}
     .rp-goal{color:#22c55e;font-weight:700}
     .rp-miss{color:#f59e0b;font-weight:700}
+    .rp-empty{font-size:.72rem;color:#8894b8;padding:4px 2px;grid-column:1/-1}
     </style>
-    <div class="pbk-sect" id="replaySection" style="display:none">
+    <div class="pbk-sect" id="replaySection" style="display:flex">
       <div class="pbk-lbl">&#9917; Epoch Match Replays &mdash; watch the policy improve
-        <label class="btn bsec" style="padding:4px 12px;font-size:.7rem;cursor:pointer" title="Load real rollout videos (mp4/webm) rendered by scripts/rollout_football_video.py">&#11014; Load real video<input id="realVidInput" type="file" accept="video/*,.mp4,.webm" multiple hidden onchange="uploadRealVideos(this)"></label>
+        <button class="btn bpri" onclick="rerunTestClip()" style="padding:4px 12px;font-size:.7rem" title="Render a fresh test match at the best return seen so far (new random seed each click)">&#8635; Re-run test</button>
+        <label class="btn bsec" style="padding:4px 12px;font-size:.7rem;cursor:pointer" title="Load real rollout videos (mp4/webm) rendered by python -m scripts.rollout_football_video">&#11014; Load real video<input id="realVidInput" type="file" accept="video/*,.mp4,.webm" multiple hidden onchange="uploadRealVideos(this)"></label>
       </div>
-      <div class="rp-grid" id="replayGallery"></div>
+      <div class="rp-grid" id="replayGallery"><div class="rp-empty">No replays yet &mdash; launch training, click Re-run test, or load a real video.</div></div>
     </div>
     <canvas id="repCanvas" width="640" height="400" style="position:fixed;left:-9999px;top:-9999px;pointer-events:none;"></canvas>
-    <!-- Video playback (shown when recording is ready) -->
-    <div class="pbk-sect" id="playbackSection">
-      <div class="pbk-lbl">&#127916; Training Session Recording &mdash; click play to watch full run</div>
-      <video id="playbackVideo" controls></video>
-    </div>
-    <!-- Hidden canvas for MediaRecorder -->
-    <canvas id="recCanvas" width="800" height="500" style="position:fixed;left:-9999px;top:-9999px;pointer-events:none;"></canvas>
   </div><!-- /pane-results -->
 </div>
 <script>
@@ -511,7 +501,7 @@ ev.run(block=False)
 while True: lrn.run(block=True)`;}
 function upd(){
   document.getElementById('sPrv').textContent=gen();
-  document.getElementById('cPrv').textContent='# Activate conda env\nconda activate flybody\n\n# Run the generated script\npython train_'+cur+'_custom.py\n\n# Test mode (1 actor, verbose)\npython flybody/train_dmpo_ray.py --test\n\n# Submit to existing Ray cluster\nray job submit --address auto -- python train_'+cur+'_custom.py\n\n# Monitor at http://localhost:8265\n\n# Record a video of a trained ARS policy (CPU, no Ray needed)\npython scripts/rollout_football_video.py --policy-npz runs/ars1/best.npz --out trained.mp4';
+  document.getElementById('cPrv').textContent='# Activate conda env\nconda activate flybody\n\n# Run the generated script\npython train_'+cur+'_custom.py\n\n# Test mode (1 actor, verbose)\npython flybody/train_dmpo_ray.py --test\n\n# Submit to existing Ray cluster\nray job submit --address auto -- python train_'+cur+'_custom.py\n\n# Monitor at http://localhost:8265\n\n# Record a video of a trained ARS policy (CPU, no Ray needed)\npython -m scripts.rollout_football_video --policy-npz runs/ars1/best.npz --out trained.mp4';
   document.getElementById('ePrv').textContent='# Required env vars\nexport MUJOCO_GL=egl\nexport MUJOCO_EGL_DEVICE_ID=0\nexport TF_FORCE_GPU_ALLOW_GROWTH=true\n\n# cuDNN (update path as needed)\nCUDNN_PATH=$(dirname $(python -c \"import nvidia.cudnn;print(nvidia.cudnn.__file__)\"))\nexport LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib/:$CUDNN_PATH/lib\n\n# Install with Ray support\npip install -e .[ray]';
   document.getElementById('stA').textContent=g('na')||32;
   document.getElementById('stB').textContent=g('bs')||256;
@@ -530,6 +520,18 @@ const histAll={ret:[],evl:[],ploss:[],closs:[]};
 const CHART_COLORS={ret:'#22c55e',evl:'#22d3ee',ploss:'#a855f7',closs:'#f59e0b'};
 let simStep=0,simRet=.01,simEvl=.01,simPloss=-.2,simCloss=1.5,simSPS=0;
 let simInterval=null;
+// Per-task mock dynamics so switching tasks changes the outputs (charts,
+// stats, logs). retMax = return asymptote, grow = learning speed,
+// noise = run-to-run wobble, sps = simulated steps/sec range.
+const TASK_SIM={
+  walk_on_ball:{ret0:.01,retMax:.62,grow:.020,noise:.006,plossStep:.010,clossDecay:.990,sps:[90,160]},
+  walk_imitation:{ret0:.01,retMax:.74,grow:.024,noise:.004,plossStep:.013,clossDecay:.988,sps:[100,175]},
+  flight_imitation:{ret0:.01,retMax:.68,grow:.017,noise:.008,plossStep:.011,clossDecay:.989,sps:[80,150]},
+  vision_guided_flight:{ret0:.01,retMax:.58,grow:.015,noise:.009,plossStep:.009,clossDecay:.991,sps:[70,130]},
+  football_vs:{ret0:.01,retMax:1.0,grow:.024,noise:.004,plossStep:.013,clossDecay:.988,sps:[100,175]},
+  template_task:{ret0:.01,retMax:.30,grow:.010,noise:.010,plossStep:.006,clossDecay:.992,sps:[120,190]},
+};
+let simTask='walk_imitation',repSkipLogged=false;
 
 function hexToRgb(h){const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);return r+','+g+','+b;}
 
@@ -572,74 +574,11 @@ function drawChart(id,data,color){
   const txt=last.toFixed(4);ctx.fillText(txt,W-txt.length*7-6,15);
 }
 
-function drawMiniChart(ctx,x,y,w,h,data,color,label){
-  ctx.fillStyle='#161928';
-  ctx.beginPath();if(ctx.roundRect)ctx.roundRect(x,y,w,h,6);else ctx.rect(x,y,w,h);ctx.fill();
-  ctx.fillStyle='#8894b8';ctx.font='10px Inter,sans-serif';ctx.fillText(label,x+7,y+14);
-  if(!data||data.length<2)return;
-  const mn=Math.min(...data),mx=Math.max(...data),rng=(mx-mn)||.001;
-  ctx.beginPath();
-  data.forEach((v,i)=>{const px=x+5+(i/(data.length-1))*(w-10),py=y+h-8-((v-mn)/rng)*(h-28);i?ctx.lineTo(px,py):ctx.moveTo(px,py);});
-  ctx.strokeStyle=color;ctx.lineWidth=1.5;ctx.lineJoin='round';ctx.stroke();
-  ctx.fillStyle=color;ctx.font='bold 10px "JetBrains Mono",monospace';
-  ctx.fillText(data[data.length-1].toFixed(3),x+w-50,y+14);
-}
-
 function refreshCharts(){
   drawChart('ret',chartData.ret,CHART_COLORS.ret);
   drawChart('evl',chartData.evl,CHART_COLORS.evl);
   drawChart('ploss',chartData.ploss,CHART_COLORS.ploss);
   drawChart('closs',chartData.closs,CHART_COLORS.closs);
-  drawRecordingFrame();
-}
-
-// ===== MediaRecorder =====
-let mediaRecorder=null,recChunks=[],recCanvas=null,recCtx=null;
-
-function startRecording(){
-  recCanvas=document.getElementById('recCanvas');
-  if(!recCanvas)return;
-  recCtx=recCanvas.getContext('2d');
-  recChunks=[];
-  drawRecordingFrame();
-  try{
-    const stream=recCanvas.captureStream(8);
-    const mime=['video/webm;codecs=vp9','video/webm','video/mp4'].find(t=>{try{return MediaRecorder.isTypeSupported(t);}catch{return false;}});
-    mediaRecorder=new MediaRecorder(stream,mime?{mimeType:mime}:{});
-    mediaRecorder.ondataavailable=e=>{if(e.data&&e.data.size>0)recChunks.push(e.data);};
-    mediaRecorder.onstop=finalizeVideo;
-    mediaRecorder.start(250);
-    document.getElementById('recIndicator').style.display='flex';
-  }catch(err){console.warn('MediaRecorder unavailable:',err);}
-}
-
-function drawRecordingFrame(){
-  if(!recCtx||!recCanvas)return;
-  const W=recCanvas.width,H=recCanvas.height;
-  recCtx.fillStyle='#0a0c14';recCtx.fillRect(0,0,W,H);
-  recCtx.fillStyle='#e8ecff';recCtx.font='bold 15px Inter,sans-serif';
-  recCtx.fillText('FlyBody RL — '+TK[cur].l,20,26);
-  recCtx.fillStyle='#8894b8';recCtx.font='12px "JetBrains Mono",monospace';
-  recCtx.fillText('Step: '+simStep.toLocaleString()+'   Return: '+simRet.toFixed(4)+'   SPS: '+simSPS,20,46);
-  const defs=[['ret','Episode Return'],['evl','Eval Return'],['ploss','Policy Loss'],['closs','Critic Loss']];
-  const cW=360,cH=185;
-  defs.forEach(([id,lbl],i)=>{
-    const cx=20+(i%2)*(cW+20),cy=62+Math.floor(i/2)*(cH+18);
-    drawMiniChart(recCtx,cx,cy,cW,cH,chartData[id],CHART_COLORS[id],lbl);
-  });
-}
-
-function finalizeVideo(){
-  if(!recChunks.length)return;
-  const ext=(recChunks[0].type||'').includes('mp4')?'mp4':'webm';
-  const blob=new Blob(recChunks,{type:recChunks[0].type||'video/webm'});
-  const url=URL.createObjectURL(blob);
-  const vid=document.getElementById('playbackVideo');
-  vid.src=url;
-  const dl=document.getElementById('downloadBtn');
-  dl.href=url;dl.download='flybody_train_'+cur+'.'+ext;
-  document.getElementById('playbackSection').style.display='flex';
-  document.getElementById('recIndicator').style.display='none';
 }
 
 // ===== Epoch Match Replays (2D top-down simulation) =====
@@ -650,6 +589,10 @@ function epochNow(){return Math.floor(histAll.ret.length/repEpLen());}
 function maybeEpochClip(){
   if(!isTr)return;
   if(!gc('recRep'))return;
+  if(simTask!=='football_vs'){
+    if(!repSkipLogged){repSkipLogged=true;addL('Match replays simulate Football Vs — charts still track this task.','if');}
+    return;
+  }
   var every=parseInt(g('repEvery'))||2;
   var ep=epochNow();
   if(ep>lastEp){
@@ -779,6 +722,8 @@ function recordMatchClip(label,skill,seed){
 function addReplayCard(url,ext,label,sub,dlName){
   var gal=document.getElementById('replayGallery');
   if(!gal)return;
+  var emp=gal.querySelector?gal.querySelector('.rp-empty'):null;
+  if(emp)emp.remove();
   document.getElementById('replaySection').style.display='flex';
   var d=document.createElement('div');d.className='rp-card';
   var h=document.createElement('div');h.className='rp-lbl';h.textContent=label;d.appendChild(h);
@@ -801,10 +746,14 @@ function uploadRealVideos(input){
   addL(input.files.length+' real video(s) loaded into replays.','ok');
   input.value='';
 }
-
-function stopRecording(){
-  if(mediaRecorder&&mediaRecorder.state==='recording'){mediaRecorder.stop();}
-  else{document.getElementById('recIndicator').style.display='none';}
+let rerunN=0;
+function rerunTestClip(){
+  if(repBusy){addL('A replay is still rendering — wait for it to finish, then re-run.','wn');return;}
+  if(cur!=='football_vs'){addL('Test matches simulate Football Vs — switch to the Football Vs task to render them.','wn');return;}
+  var best=simRet;
+  if(histAll.ret.length)best=Math.max.apply(null,histAll.ret);
+  document.getElementById('replaySection').style.display='flex';
+  recordMatchClip('Re-test '+(++rerunN),best,(Date.now()%90000)+7);
 }
 
 // ===== Tab Switching =====
@@ -821,13 +770,14 @@ function switchMainTab(tab){
 function launch(){
   if(isTr)return;isTr=true;
   ['ret','evl','ploss','closs'].forEach(k=>{chartData[k]=[];histAll[k]=[];});
-  simStep=0;simRet=.01;simEvl=.01;simPloss=-.2;simCloss=1.5;simSPS=0;prg=0;lmi=0;
-  lastEp=0;
-  var _gal=document.getElementById('replayGallery');if(_gal)_gal.innerHTML='';
+  simTask=cur;
+  const P0=TASK_SIM[simTask]||TASK_SIM.walk_imitation;
+  simStep=0;simRet=P0.ret0;simEvl=P0.ret0;simPloss=-.2;simCloss=1.5;simSPS=0;prg=0;lmi=0;
+  lastEp=0;repSkipLogged=false;
+  var _gal=document.getElementById('replayGallery');
+  if(_gal)_gal.innerHTML='<div class="rp-empty">'+(simTask==='football_vs'?'Waiting for epoch replays…':'Match replays render for the Football Vs task — charts still track this run.')+'</div>';
   document.getElementById('replaySection').style.display='none';
   document.getElementById('trainingDoneMsg').style.display='none';
-  document.getElementById('playbackSection').style.display='none';
-  document.getElementById('playbackVideo').src='';
   document.getElementById('launchBtn').style.display='none';
   const lb2=document.getElementById('launchBtn2');if(lb2)lb2.style.display='none';
   document.getElementById('stopBtn').style.display='';
@@ -837,16 +787,15 @@ function launch(){
   document.getElementById('cfgBadge').textContent='Running';
   document.getElementById('resBadge').textContent='LIVE';
   document.getElementById('res-task-lbl').textContent=TK[cur].l;
-  addL('Launching training run...','if');
+  addL('Launching training run ('+TK[cur].l+')...','if');
   switchMainTab('results');
-  setTimeout(()=>{resizeCharts();startRecording();},120);
+  setTimeout(resizeCharts,120);
   simInterval=setInterval(simTick,1350);
 }
 
 function stopT(){
   if(!isTr)return;
   clearInterval(simInterval);simInterval=null;isTr=false;
-  stopRecording();
   document.getElementById('launchBtn').style.display='';
   const lb2=document.getElementById('launchBtn2');if(lb2)lb2.style.display='';
   document.getElementById('stopBtn').style.display='none';
@@ -860,10 +809,9 @@ function stopT(){
 
 function finishSim(){
   clearInterval(simInterval);simInterval=null;
-  stopRecording();
-  if(gc('recRep'))recordMatchClip('Final',simRet,99991);
+  if(gc('recRep')&&simTask==='football_vs')recordMatchClip('Final',simRet,99991);
   document.getElementById('trainingDoneMsg').style.display='inline-flex';
-  addL('Training complete! Recording ready below.','ok');
+  addL('Training complete!','ok');
   ['pBar','pBar-r'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.width='100%';});
   ['pLbl','pLbl-r'].forEach(id=>{const e=document.getElementById(id);if(e)e.textContent='Complete';});
   isTr=false;
@@ -879,12 +827,13 @@ function finishSim(){
 
 // ===== simTick updated with dual progress bars =====
 function simTick(){
+  const P=TASK_SIM[simTask]||TASK_SIM.walk_imitation;
   simStep+=Math.round(55+Math.random()*90);
-  simSPS=Math.round(100+Math.random()*75);
-  simRet=Math.min(simRet*(1+.024+Math.random()*.013)+(Math.random()-.35)*.004,1);
-  simEvl=Math.min(simEvl*(1+.017)+(Math.random()-.43)*.003,1);
-  simPloss+=-.013-Math.random()*.006+Math.random()*.004;
-  simCloss=Math.max(simCloss*(.988+Math.random()*.007)+(Math.random()-.5)*.04,.04);
+  simSPS=P.sps[0]+Math.round(Math.random()*(P.sps[1]-P.sps[0]));
+  simRet=Math.min(simRet*(1+P.grow+Math.random()*P.grow*.5)+(Math.random()-.35)*P.noise,P.retMax);
+  simEvl=Math.min(simEvl*(1+P.grow*.7)+(Math.random()-.43)*P.noise*.75,P.retMax*.96);
+  simPloss+=-P.plossStep-Math.random()*P.plossStep*.5+Math.random()*P.plossStep*.3;
+  simCloss=Math.max(simCloss*(P.clossDecay+Math.random()*.007)+(Math.random()-.5)*.04,.04);
   chartData.ret.push(simRet);chartData.evl.push(simEvl);
   chartData.ploss.push(simPloss);chartData.closs.push(simCloss);
   histAll.ret.push(simRet);histAll.evl.push(simEvl);
@@ -912,14 +861,8 @@ function simTick(){
   if(lmi<LM.length){addL(LM[lmi][1],LM[lmi][0]);lmi++;}
 }
 
-// ===== Playback =====
+// ===== Playback (chart history replay) =====
 function playbackAll(){
-  const vid=document.getElementById('playbackVideo');
-  if(vid.src&&vid.src!==location.href){
-    vid.currentTime=0;vid.play();
-    document.getElementById('playbackSection').style.display='flex';
-    return;
-  }
   if(!histAll.ret.length){addL('No history yet — run training first.','wn');return;}
   const snap=histAll.ret.map((_,i)=>({ret:histAll.ret[i],evl:histAll.evl[i],ploss:histAll.ploss[i],closs:histAll.closs[i]}));
   let pi=0;

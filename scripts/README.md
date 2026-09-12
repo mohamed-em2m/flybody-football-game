@@ -9,18 +9,17 @@ This folder contains training and rollout scripts for FlyBody RL experiments.
 - **`rollout_football_video.py`**: High-resolution video renderer for policy rollouts.
 
 ## Quickstart
-
-### Train an ARS Football Agent
+Run from the repo root as a package (`scripts/` uses relative imports):
 ```bash
-python scripts/train_football_ars.py --iters 5 --run-dir runs/ars1
+python -m scripts.train_football_ars --iters 5 --run-dir runs/ars1
 ```
 
 ### Resume Training
 ```bash
-python scripts/train_football_ars.py --iters 5 --run-dir runs/ars1 --resume
+python -m scripts.train_football_ars --iters 5 --run-dir runs/ars1 --resume
 ```
 
 ### Render Policy Rollout to Video
 ```bash
-python scripts/rollout_football_video.py --policy-npz runs/ars1/best.npz --out videos/football_rollout.mp4
+python -m scripts.rollout_football_video --policy-npz runs/ars1/best.npz --out videos/football_rollout.mp4
 ```
