@@ -653,6 +653,7 @@ function recordMatchClip(label,skill,seed){
     addL('Replay ready: '+label+(result?' — '+result:'')+'.','ok');
   };
   function frame(){
+    try{
     // --- physics (field units, dt=1/30) ---
     var dt=1/30;
     if(f<contact){
@@ -715,6 +716,12 @@ function recordMatchClip(label,skill,seed){
     f++;
     if(f<F)setTimeout(frame,1000/30);
     else{try{mr.stop();}catch(e){repBusy=false;}try{stream.getTracks().forEach(function(t){t.stop();});}catch(e){}}
+    }catch(err){
+      repBusy=false;
+      try{mr.stop();}catch(e){}
+      try{stream.getTracks().forEach(function(t){t.stop();});}catch(e){}
+      addL('Replay render failed ('+label+'): '+((err&&err.message)||err),'wn');
+    }
   }
   try{mr.start(250);}catch(e){repBusy=false;return;}
   frame();
@@ -776,7 +783,7 @@ function launch(){
   lastEp=0;repSkipLogged=false;
   var _gal=document.getElementById('replayGallery');
   if(_gal)_gal.innerHTML='<div class="rp-empty">'+(simTask==='football_vs'?'Waiting for epoch replays…':'Match replays render for the Football Vs task — charts still track this run.')+'</div>';
-  document.getElementById('replaySection').style.display='none';
+  document.getElementById('replaySection').style.display='flex';
   document.getElementById('trainingDoneMsg').style.display='none';
   document.getElementById('launchBtn').style.display='none';
   const lb2=document.getElementById('launchBtn2');if(lb2)lb2.style.display='none';
