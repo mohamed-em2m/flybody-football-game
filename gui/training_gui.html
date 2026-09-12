@@ -1105,7 +1105,7 @@ function updateTestPhysics(state, dt, W, H){
         state.kicked = true;
         const aimError = (1 - skill) * (R() - 0.5) * 70;
         const targetY = H * 0.5 + aimError;
-        const cAng = Math.atan2(targetY - b.y, 22 - b.x);
+        const cAng = Math.atan2(targetY - b.y, (W - state.gx) - b.x);
         const cSpd = 170 + skill * 120;
         b.vx = Math.cos(cAng) * cSpd;
         b.vy = Math.sin(cAng) * cSpd;
@@ -1154,7 +1154,7 @@ function updateTestPhysics(state, dt, W, H){
     }
 
     // Goal detection west (east team scores the counter)
-    if(!state.done && b.x <= 34){
+    if(!state.done && b.x <= (W - state.gx) + 12){
       if(Math.abs(b.y - H*0.5) <= state.gh * 0.5){
         state.outcome = 'EAST SCORES!';
         state.done = true;
@@ -1318,6 +1318,18 @@ function renderTestEnvironment(ctx, W, H, state){
     ctx.lineWidth = 1;
     for(let y = H/2 - gh/2 + 8; y < H/2 + gh/2; y += 12){
       ctx.beginPath(); ctx.moveTo(state.gx, y); ctx.lineTo(W - 22, y); ctx.stroke();
+    }
+    // West Goal (east team's target, mirrored)
+    const wgx = W - state.gx;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+    ctx.fillRect(22, H/2 - gh/2, wgx - 22, gh);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(22, H/2 - gh/2, wgx - 22, gh);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+    ctx.lineWidth = 1;
+    for(let y = H/2 - gh/2 + 8; y < H/2 + gh/2; y += 12){
+      ctx.beginPath(); ctx.moveTo(22, y); ctx.lineTo(wgx, y); ctx.stroke();
     }
 
     // Ball trail
