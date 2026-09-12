@@ -18,6 +18,8 @@ from flybody.tasks.template_task import TemplateTask
 
 from flybody.tasks.arenas.ball import BallFloor
 from flybody.tasks.arenas.hills import SineBumps, SineTrench
+from flybody.tasks.arenas.football import FootballArena
+from flybody.tasks.football_vs import FootballVs
 from flybody.tasks.pattern_generators import WingBeatPatternGenerator
 from flybody.tasks.trajectory_loaders import (
     HDF5FlightTrajectoryLoader,
@@ -294,6 +296,64 @@ def template_task(random_state: np.random.RandomState | None = None,
                         time_limit=time_limit)
     # Reset control callback, if any.
     mujoco.set_mjcb_control(None)
+    return composer.Environment(time_limit=time_limit,
+                                task=task,
+                                random_state=random_state,
+                                strip_singleton_obs_buffer_dim=True)
+
+
+def football_vs(opponent_mode: str = 'static',
+                field_length: float = 4.0,
+                field_width: float = 3.0,
+                ball_radius: float = 0.15,
+                goal_width: float = 1.0,
+                goal_height: float = 0.6,
+                time_limit: float = 10.0,
+                force_actuators: bool = False,
+                disable_wings: bool = True,
+                joint_filter: float = 0.01,
+                random_state: np.random.RandomState | None = None,
+                **task_kwargs):
+    """Fly-vs-fly football: attacker scores in EAST goal, goalie defends it.
+
+    Two flies share one physics: attacker (trains to push the ball into
+    the +x goal) and goalie (tries to stop it, can score -x goal).
+
+    Args:
+        opponent_mode: 'static' (goalie holds still, attacker-only 59-dim
+            action, recommended to start), 'scripted' (goalie uses a
+            goalie_policy callable), or 'self_play' (concat attacker+goalie
+            action for competitive training).
+        field_length: Field size along x (cm).
+        field_width: Field size along y (cm).
+        ball_radius: Ball radius (cm). 0.15 ~= 3mm diameter fly-scale ball.
+        goal_width: Goal mouth width (cm).
+        goal_height: Goal crossbar height (cm).
+        time_limit: Episode time limit (s).
+        force_actuators: Whether to use force actuators.
+        disable_wings: Retract/disable wings on both flies.
+        joint_filter: Joint actuator filter timescale.
+        random_state: Random state for reproducibility.
+        **task_kwargs: Forwarded to FootballVs (goalie_policy,
+            attacker_spawn, goalie_spawn, goal_bonus, ...).
+
+    Returns:
+        Environment for fly-vs-fly football.
+    """
+    walker = fruitfly.FruitFly
+    arena = FootballArena(field_length=field_length,
+                          field_width=field_width,
+                          ball_radius=ball_radius,
+                          goal_width=goal_width,
+                          goal_height=goal_height)
+    task = FootballVs(walker=walker,
+                      arena=arena,
+                      time_limit=time_limit,
+                      force_actuators=force_actuators,
+                      disable_wings=disable_wings,
+                      joint_filter=joint_filter,
+                      opponent_mode=opponent_mode,
+                      **task_kwargs)
     return composer.Environment(time_limit=time_limit,
                                 task=task,
                                 random_state=random_state,
