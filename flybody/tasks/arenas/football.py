@@ -93,6 +93,16 @@ class FootballArena(composer.Arena):
         )
         self._ball_body = ball_body
 
+        # Fixed overview camera that tracks the ball, for recording videos.
+        # Render it with: physics.render(camera_id='overview').
+        self._mjcf_root.worldbody.add(
+            'camera',
+            name='overview',
+            mode='targetbody',
+            target='football',
+            pos=(0, -field_width / 2.0 - 3.0, 2.5),
+        )
+
         # Goals at both ends, opening faces the field center.
         post_radius = 0.03
         for side, sign in (('east', 1.0), ('west', -1.0)):
