@@ -376,13 +376,18 @@ def football_vs(
         n_per_team: Flies per side. 1 keeps legacy attacker/goalie names
             (old checkpoints keep loading); N>1 uses west_{i}/east_{i}
             with auto formations and team colors.
+        formation_mode: 'fixed' (same kickoff every episode) or 'random'
+            (a fresh formation per side each episode: line, faceoff,
+            spread, arc, cluster, wings).
+        formations: Optional subset of formation names for random mode.
         west_spawns: Optional [(x, y)] * n_per_team overrides.
         east_spawns: Optional [(x, y)] * n_per_team overrides.
         extended_obs: Add ball_to_west_goal, possession, last_event and
             nearest-fly vectors (auto-on when n_per_team > 1).
         random_state: Random state for reproducibility.
         **task_kwargs: Forwarded to FootballVs (goalie_policy,
-            attacker_spawn, goalie_spawn, goal_bonus, pass_bonus,
+            attacker_spawn, goalie_spawn, formation_mode, formations,
+            goal_bonus, pass_bonus,
             shot_bonus, interception_bonus, save_bonus,
             out_of_bounds_penalty, ...).
 

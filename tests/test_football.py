@@ -1,8 +1,10 @@
 """Test fly-vs-fly football environment."""
 
 import numpy as np
+import pytest
 
 from flybody.fly_envs import football_vs
+from flybody.tasks.football_vs import _FORMATIONS
 
 
 def test_football_static_mode_runs():
@@ -253,3 +255,75 @@ def test_out_of_bounds_penalty():
         [0.0, 0.0, spawn_z, 1, 0, 0, 0]
     )
     assert float(task.get_reward(physics)) > r_oob + 0.5
+
+
+def test_football_5v5_build():
+    env = football_vs(opponent_mode="static", time_limit=1.0, n_per_team=5)
+    assert env.action_spec().shape == (59,)  # west_0 only.
+    env.reset()
+    names = _bodies(env)
+    for fly in ("west_4", "east_4"):
+        assert any(fly in (n or "") for n in names), fly
+    for _ in range(10):
+        ts = env.step(np.random.uniform(-0.3, 0.3, 59))
+        assert np.isfinite(ts.reward)
+
+
+def test_formation_fixed_default():
+    env = football_vs(n_per_team=2, time_limit=1.0)
+    env.reset()
+    task = env.task
+    assert task.formation == ("fixed", "fixed")
+    # Legacy auto line kept exact.
+    assert task._west_spawns == [(-1.0, -0.45), (-1.7, 0.45)]
+    assert task._east_spawns == [(1.5, -0.45), (0.8, 0.45)]
+
+
+def test_random_formations_vary_and_valid():
+    env = football_vs(n_per_team=3, time_limit=1.0, formation_mode="random")
+    task = env.task
+    L = task._arena.field_length
+    Wd = task._arena.field_width
+    seen = set()
+    for seed in range(16):
+        task.initialize_episode(env.physics, np.random.RandomState(seed))
+        wname, ename = task.formation
+        assert wname in _FORMATIONS and ename in _FORMATIONS
+        seen.add((wname, ename))
+        pts = list(task._spawns.values())
+        assert len(pts) == 6
+        for x, y in pts:
+            assert abs(x) <= L / 2 - 0.2, (x, y)
+            assert abs(y) <= Wd / 2 - 0.2, (x, y)
+        for i in range(len(pts)):
+            for j in range(i + 1, len(pts)):
+                d = np.hypot(pts[i][0] - pts[j][0], pts[i][1] - pts[j][1])
+                assert d >= 0.3, (pts[i], pts[j])
+    assert len(seen) > 1, seen
+    # Full episodes still run under random formations.
+    env.reset()
+    for _ in range(10):
+        ts = env.step(np.random.uniform(-0.3, 0.3, 59))
+        assert np.isfinite(ts.reward)
+
+
+def test_random_formation_options():
+    with pytest.raises(ValueError):
+        football_vs(
+            n_per_team=2,
+            formation_mode="random",
+            west_spawns=[(0, 0), (0, 1)],
+        )
+    with pytest.raises(ValueError):
+        football_vs(n_per_team=2, formation_mode="silly")
+    with pytest.raises(ValueError):
+        football_vs(n_per_team=2, formations=["nope"])
+    env = football_vs(
+        n_per_team=2,
+        time_limit=1.0,
+        formation_mode="random",
+        formations=["cluster"],
+    )
+    for seed in range(4):
+        env.task.initialize_episode(env.physics, np.random.RandomState(seed))
+        assert env.task.formation == ("cluster", "cluster")

@@ -61,6 +61,143 @@ _TEAM_COLORS = {
     "east": (0.18, 0.38, 0.95, 1.0),
 }
 
+# Kickoff formations for formation_mode="random". Each generator takes
+# (n, field_length, field_width, side, random_state) and returns n
+# (x, y) spawn points in meters. Spots are clipped to the pitch and
+# spread apart afterwards, so generators only need roughly sane shapes.
+_FORMATIONS = ("line", "faceoff", "spread", "arc", "cluster", "wings")
+
+
+def _fit_step(n, room, base, minimum=0.3):
+    if n <= 1:
+        return base
+    if room >= base * (n - 1):
+        return base
+    return max(minimum, room / (n - 1))
+
+
+def _formation_line(n, L, Wd, side, random_state):
+    ystep = _fit_step(n, Wd - 0.7, 0.9, minimum=0.25)
+    out = []
+    for i in range(n):
+        y = (i - (n - 1) / 2.0) * ystep
+        if side == "west":
+            xstep = _fit_step(n, -1.0 - (-L / 2.0 + 0.4), 0.7)
+            out.append((-1.0 - i * xstep, y))
+        else:
+            out.append((L / 2.0 - 0.5 - i * 0.7, y))
+    return out
+
+
+def _formation_faceoff(n, L, Wd, side, random_state):
+    ystep = _fit_step(n, Wd - 0.7, 0.9, minimum=0.25)
+    out = []
+    for i in range(n):
+        y = (i - (n - 1) / 2.0) * ystep
+        if side == "west":
+            xstep = _fit_step(n, -0.5 - (-L / 2.0 + 0.4), 0.45)
+            out.append((-0.5 - i * xstep, y))
+        else:
+            xstep = _fit_step(n, (L / 2.0 - 0.4) - 0.5, 0.45)
+            out.append((0.5 + i * xstep, y))
+    return out
+
+
+def _formation_spread(n, L, Wd, side, random_state):
+    ystep = _fit_step(n, Wd - 0.7, 0.9, minimum=0.25)
+    out = []
+    for i in range(n):
+        y = (i - (n - 1) / 2.0) * ystep
+        t = i / (n - 1) if n > 1 else 0.5
+        if side == "west":
+            out.append((-L / 2.0 + 0.5 + t * (L / 2.0 - 0.9), y))
+        else:
+            out.append((L / 2.0 - 0.5 - t * (L / 2.0 - 0.9), y))
+    return out
+
+
+def _formation_arc(n, L, Wd, side, random_state):
+    import math
+
+    r = min(1.0, L / 4.0 + 0.2)
+    out = []
+    for i in range(n):
+        t = i / (n - 1) if n > 1 else 0.5
+        if side == "west":
+            a = math.radians(100.0 + 160.0 * t)
+            out.append((-0.2 + r * math.cos(a), r * math.sin(a)))
+        else:
+            a = math.radians(-80.0 + 160.0 * t)
+            out.append((0.2 + r * math.cos(a), r * math.sin(a)))
+    return out
+
+
+def _formation_cluster(n, L, Wd, side, random_state):
+    cx = -0.5 if side == "west" else 0.5
+    return [
+        (
+            cx + random_state.uniform(-0.45, 0.45),
+            random_state.uniform(-0.45, 0.45),
+        )
+        for _ in range(n)
+    ]
+
+
+def _formation_wings(n, L, Wd, side, random_state):
+    hw = Wd / 2.0 - 0.4
+    out = []
+    for i in range(n):
+        y = hw if i % 2 == 0 else -hw
+        if side == "west":
+            out.append((-L / 2.0 + 0.6 + (i // 2) * 0.5, y))
+        else:
+            out.append((L / 2.0 - 0.6 - (i // 2) * 0.5, -y))
+    return out
+
+
+_FORMATION_FNS = {
+    "line": _formation_line,
+    "faceoff": _formation_faceoff,
+    "spread": _formation_spread,
+    "arc": _formation_arc,
+    "cluster": _formation_cluster,
+    "wings": _formation_wings,
+}
+
+
+def _enforce_spawns(points, L, Wd, min_sep=0.35):
+    """Clip spawn points inside the pitch and spread overlaps apart."""
+    pts = [
+        [
+            min(max(x, -L / 2.0 + 0.35), L / 2.0 - 0.35),
+            min(max(y, -Wd / 2.0 + 0.3), Wd / 2.0 - 0.3),
+        ]
+        for x, y in points
+    ]
+    for _ in range(25):
+        moved = False
+        for i in range(len(pts)):
+            for j in range(i + 1, len(pts)):
+                dx = pts[i][0] - pts[j][0]
+                dy = pts[i][1] - pts[j][1]
+                d = (dx * dx + dy * dy) ** 0.5
+                if d < min_sep:
+                    moved = True
+                    if d < 1e-6:
+                        dx, dy, d = 1.0, 0.0, 1.0
+                    push = (min_sep - d) / 2.0 + 1e-3
+                    ux, uy = dx / d, dy / d
+                    pts[i][0] += ux * push
+                    pts[i][1] += uy * push
+                    pts[j][0] -= ux * push
+                    pts[j][1] -= uy * push
+        for p in pts:
+            p[0] = min(max(p[0], -L / 2.0 + 0.35), L / 2.0 - 0.35)
+            p[1] = min(max(p[1], -Wd / 2.0 + 0.3), Wd / 2.0 - 0.3)
+        if not moved:
+            break
+    return [(float(x), float(y)) for x, y in pts]
+
 
 class FootballFly(FruitFly):
     """FruitFly with a name-prefix-agnostic episode initializer.
@@ -109,6 +246,8 @@ class FootballVs(composer.Task):
         n_per_team: int = 1,
         west_spawns: list | None = None,
         east_spawns: list | None = None,
+        formation_mode: str = "fixed",
+        formations: list | None = None,
         attacker_spawn=(-1.0, 0.0),
         goalie_spawn=None,
         ball_start=(0.0, 0.0),
@@ -155,6 +294,13 @@ class FootballVs(composer.Task):
                 formation.
             west_spawns: Optional [(x, y)] * n_per_team overrides.
             east_spawns: Optional [(x, y)] * n_per_team overrides.
+            formation_mode: 'fixed' (same kickoff every episode: explicit
+                spawns or the auto line) or 'random' (each episode samples
+                a formation per side so the policy faces varied shapes
+                instead of memorizing one lineup).
+            formations: Optional subset of formation names to sample from
+                in random mode. Any of 'line', 'faceoff', 'spread', 'arc',
+                'cluster', 'wings'. Defaults to all six.
             attacker_spawn: (x, y) start for west_0 (legacy attacker).
             goalie_spawn: (x, y) start for east_0. Defaults to in front of
                 east goal.
@@ -202,6 +348,24 @@ class FootballVs(composer.Task):
         if n_per_team < 1:
             raise ValueError("n_per_team must be >= 1")
         self._n_per_team = n_per_team
+        if formation_mode not in ("fixed", "random"):
+            raise ValueError("formation_mode must be 'fixed' or 'random'")
+        if formations is None:
+            self._formations = list(_FORMATIONS)
+        else:
+            unknown = [f for f in formations if f not in _FORMATIONS]
+            if unknown:
+                raise ValueError(f"unknown formations: {unknown}")
+            self._formations = list(formations)
+        if formation_mode == "random" and (
+            west_spawns is not None or east_spawns is not None
+        ):
+            raise ValueError(
+                "explicit *_spawns cannot be combined with "
+                "formation_mode='random'; pick one"
+            )
+        self._formation_mode = formation_mode
+        self._last_formations = ("fixed", "fixed")
         self._opponent_mode = opponent_mode
         self._goalie_policy = goalie_policy
         self._extra_policies = dict(extra_policies or {})
@@ -413,16 +577,46 @@ class FootballVs(composer.Task):
             if side == "west":
                 return [self._attacker_spawn]
             return [tuple(self._goalie_spawn)]
-        # Auto formation: index 0 holds the legacy goal line (east) or
-        # striker spot (west); the rest fan out behind / across.
+        if n <= 3:
+            # Legacy auto formation, kept exact: index 0 holds the goal
+            # line (east) or striker spot (west); the rest fan out.
+            out = []
+            for i in range(n):
+                y = (i - (n - 1) / 2.0) * 0.9
+                if side == "west":
+                    out.append((-1.0 - i * 0.7, y))
+                else:
+                    out.append((arena.field_length / 2.0 - 0.5 - i * 0.7, y))
+            return out
+        # Wider teams: same line family with steps shrunk to fit the pitch.
+        ystep = _fit_step(n, arena.field_width - 0.7, 0.9, minimum=0.25)
+        wxstep = _fit_step(n, -1.0 - (-arena.field_length / 2.0 + 0.4), 0.7)
         out = []
         for i in range(n):
-            y = (i - (n - 1) / 2.0) * 0.9
+            y = (i - (n - 1) / 2.0) * ystep
             if side == "west":
-                out.append((-1.0 - i * 0.7, y))
+                out.append((-1.0 - i * wxstep, y))
             else:
                 out.append((arena.field_length / 2.0 - 0.5 - i * 0.7, y))
         return out
+
+    def _sample_formation_spawns(self, random_state):
+        """Sample one formation per side; returns ({name: (x, y)}, w, e)."""
+        names = self._formations
+        wname = names[random_state.randint(0, len(names))]
+        ename = names[random_state.randint(0, len(names))]
+        n = self._n_per_team
+        L = self._arena.field_length
+        Wd = self._arena.field_width
+        west = _FORMATION_FNS[wname](n, L, Wd, "west", random_state)
+        east = _FORMATION_FNS[ename](n, L, Wd, "east", random_state)
+        fixed = _enforce_spawns(west + east, L, Wd)
+        spawns = {}
+        for w, p in zip(self._west, fixed[:n]):
+            spawns[w.name] = p
+        for w, p in zip(self._east, fixed[n:]):
+            spawns[w.name] = p
+        return spawns, wname, ename
 
     def _paint_teams(self):
         """Tint each fly's thorax with its team color (visual only).
@@ -483,6 +677,11 @@ class FootballVs(composer.Task):
         return self._n_per_team
 
     @property
+    def formation(self):
+        """(west_name, east_name) sampled this episode, or fixed/fixed."""
+        return self._last_formations
+
+    @property
     def possession_side(self):
         """'west', 'east' or None per the last game-state update."""
         return self._possession
@@ -517,6 +716,15 @@ class FootballVs(composer.Task):
         self._pending_bonus = {"west": 0.0, "east": 0.0}
         self._last_event = ("none", None, -(10**9))
         self._last_intercept_step = {"west": -(10**9), "east": -(10**9)}
+
+        # Random formations: fresh kickoff shape every episode so the
+        # policy faces varied geometries instead of one memorized lineup.
+        if self._formation_mode == "random":
+            spawns, wname, ename = self._sample_formation_spawns(random_state)
+            self._spawns = spawns
+            self._last_formations = (wname, ename)
+        else:
+            self._last_formations = ("fixed", "fixed")
 
         spawn_z = float(self._attacker.upright_pose.xpos[2])
         # Lateral spawn noise forces the policy to cope with varied
