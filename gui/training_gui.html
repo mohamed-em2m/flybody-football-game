@@ -873,8 +873,8 @@ function resetFootballKickoff(state, W, H){
       angle: -Math.PI / 2, wing: R() * 6, leg: R() * 6, num: i + 1});
   }
   state.goalies = [];
-  // East line: just east of the center spot, facing west. Keeper (#1)
-  // takes the middle of the line, then falls back to goal once play starts.
+  // East line: just east of the center spot, facing west. #1 takes the
+  // middle of the line and plays as a chaser like every other fly.
   for(let i = 0; i < nTeam; i++){
     state.goalies.push({x: W * 0.46 + 55 + (R() - 0.5) * 24,
       y: H * 0.5 + (i - (nTeam - 1) / 2) * 70 + (R() - 0.5) * 24,
@@ -1169,73 +1169,12 @@ function updateTestPhysics(state, dt, W, H){
       }
     });
 
-    // --- Sweeper-keeper v3: contests kickoffs and slow balls anywhere
-    // east of midfield like every other fly; holds + tracks against
-    // fast attacks, and jogs home when the ball goes far west. ---
-    gk.wing += dt * 30;
-    gk.leg += dt * 8;
-    const lineX = state.gx - 18;
-    // 0 when the ball is far from goal, 1 when it reaches the line.
-    const danger = Math.max(0, Math.min(1, (b.x - (state.gx - 200)) / 160));
-    const roam = 1 - danger;
-    const gkBallSpd = Math.hypot(b.vx, b.vy);
-    const gkDist = Math.hypot(b.x - gk.x, b.y - gk.y);
-    // Charge out for the opening ball and slow balls east of midfield.
-    // Fast shots: stay home, cut the angle. Cleared-long-west: recover.
-    const contest = state.kickCd <= 0 && (!state.kicked || gkBallSpd < 90) && b.x > W * 0.35;
-    if(contest && gkDist > 26){
-      const dashA = Math.atan2(b.y - gk.y, b.x - gk.x);
-      // Deliberately a step slower than west chasers (110+110*skill):
-      // the keeper visibly charges, west usually wins the race, and the
-      // keeper reads the kick — pressing slow balls, retreating from shots.
-      const dashSpd = 120 + skill * 50;
-      gk.x += Math.cos(dashA) * dashSpd * dt;
-      gk.y += Math.sin(dashA) * dashSpd * dt;
-    } else {
-      // Patrol on a ~3s cycle (visible inside a 6s clip): out toward the
-      // penalty spot while the ball is far, back to the line in danger.
-      const outX = lineX - danger * (25 + skill * 20)
-        + roam * (Math.sin(state.time * 2.0 + state.seed) * 30 - 22);
-      gk.x += (outX - gk.x) * Math.min(1, dt * (2 + skill * 3));
-      // Track the ball, shading toward the near post as danger grows;
-      // sweep the full width of the box while the ball is far away.
-      const nearPostY = H * 0.5 + (b.y >= H * 0.5 ? 1 : -1) * state.gh * 0.38;
-      let goalieTargetY = b.y + (nearPostY - b.y) * 0.3 * danger
-        + roam * Math.sin(state.time * 1.8 + state.seed * 1.3) * state.gh * 0.40;
-      goalieTargetY = Math.max(H*0.5 - state.gh*0.45, Math.min(H*0.5 + state.gh*0.45, goalieTargetY));
-      gk.y += (goalieTargetY - gk.y) * Math.min(1, dt * (3 + (1 - skill) * 3 + danger * 1.5));
-    }
-    // Face the ball so patrols and advances read as intent, not drift.
-    gk.angle = Math.atan2(b.y - gk.y, b.x - gk.x) - Math.PI / 2;
-    // Clear loose balls in reach: to the most open mate upfield, or long.
-    if(gkDist <= 26 && state.kickCd <= 0 && (!state.kicked || gkBallSpd < 90)){
-      state.kicked = true;
-      state.kickCd = 0.6;
-      state.poss = 'east';
-      let mate = null, best = -1e9;
-      state.goalies.forEach(function(m){
-        if(m === gk) return;
-        let md = 1e9;
-        state.attackers.forEach(function(a){
-          const dd = Math.hypot(a.x - m.x, a.y - m.y);
-          if(dd < md) md = dd;
-        });
-        const score = md + (gk.x - m.x) * 0.5;
-        if(score > best){ best = score; mate = m; }
-      });
-      let tx, ty;
-      if(mate && R() < 0.7){ tx = mate.x; ty = mate.y; }
-      else { tx = W * 0.35; ty = H * 0.5 + (R() - 0.5) * 120; }
-      const clrAng = Math.atan2(ty - b.y, tx - b.x);
-      const clrSpd = 220 + skill * 80;
-      b.vx = Math.cos(clrAng) * clrSpd;
-      b.vy = Math.sin(clrAng) * clrSpd;
-      setHudResult('CLEARANCE E1', '#38bdf8');
-    }
+    // --- East flies: ALL chase like outfield players, including #1.
+    // No one holds the goal line anymore: #1 hunts the ball end to end
+    // and counters west on winning it, same as #2/#3 below. ---
 
     // --- East defenders: chase the ball, counter toward the west goal ---
     state.goalies.forEach(function(d, di){
-      if(di === 0) return;
       d.wing += dt * 30;
       d.leg += dt * 8;
       const dspeed = 100 + skill * 100;
@@ -1329,10 +1268,12 @@ function updateTestPhysics(state, dt, W, H){
       b.y = Math.max(29, Math.min(H - 29, b.y));
     }
 
-    // Goal detection east (keeper = goalies[0])
+    // Goal detection east (#1 is a chaser now, not a line keeper: a save
+    // only counts when #1 is goal-side of the ball near the line, i.e. it
+    // genuinely blocked the shot — a chaser trailing behind concedes).
     if(!state.done && b.x >= state.gx - 12){
       if(Math.abs(b.y - H*0.5) <= state.gh * 0.5){
-        if(Math.abs(b.y - gk.y) < 18 && b.x < state.gx + 5){
+        if(Math.abs(b.y - gk.y) < 18 && b.x < state.gx + 5 && gk.x > b.x - 5){
           state.outcome = 'SAVED BY GOALIE';
           state.done = true;
           b.vx = -b.vx * 0.35;
