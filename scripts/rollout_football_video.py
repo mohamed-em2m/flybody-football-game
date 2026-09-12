@@ -23,32 +23,12 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 try:  # `python -m scripts.rollout_football_video`
-    from .football_policy import flatten_obs, linear_action, load_policy
+    from .football_policy import make_policy
 except ImportError:  # `python scripts/rollout_football_video.py`
-    from .football_policy import flatten_obs, linear_action, load_policy
+    from .football_policy import make_policy
 
 import numpy as np  # noqa: E402  (after sys.path setup below)
 import imageio.v2 as imageio  # noqa: E402
-
-
-def make_policy(n_act, seed=0, policy_npz=None):
-    """Random actions, or a trained linear policy from train_football_ars."""
-    if policy_npz is None:
-        rng = np.random.RandomState(seed)
-
-        def policy(observation):
-            del observation  # Unused by random policy.
-            return rng.uniform(-0.5, 0.5, n_act)
-
-        return policy
-
-    matrix, mean, var, keys, minimum, maximum = load_policy(policy_npz)
-
-    def policy(observation):
-        flat = flatten_obs(observation, keys)
-        return linear_action(flat, matrix, mean, var, minimum, maximum)
-
-    return policy
 
 
 def draw_scoreboard(frame, task):
