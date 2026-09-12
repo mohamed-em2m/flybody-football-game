@@ -1101,7 +1101,9 @@ function updateTestPhysics(state, dt, W, H){
         if(open > bestOpen){ bestOpen = open; bestMate = m; }
       });
       const passP = bestMate ? (0.50 + 0.35 * (1 - skill)) : 0;
-      if(bestMate && bestOpen > 10 && R() < passP){
+      // Relief pass: under heavy pressure take any vaguely open mate.
+      const openNeed = pressD < 25 ? 4 : 10;
+      if(bestMate && bestOpen > openNeed && R() < passP){
         const lead = 0.35;
         const tx = bestMate.x + Math.cos(bestMate.angle + Math.PI/2) * 50 * lead;
         const ty = bestMate.y + Math.sin(bestMate.angle + Math.PI/2) * 50 * lead;
@@ -1119,25 +1121,33 @@ function updateTestPhysics(state, dt, W, H){
         const kSpd = 160 + skill * 150;
         b.vx = Math.cos(kickAng) * kSpd;
         b.vy = Math.sin(kickAng) * kSpd;
+        setHudResult('SHOT ' + a.num, '#fb923c');
       }
     }
     const chaseRank = state.attackers.map(function(a, ai){
       return {ai: ai, d: Math.hypot(b.x - a.x, b.y - a.y)};
     }).sort(function(p, q){ return p.d - q.d; });
-    const chasers = {};
-    chaseRank.slice(0, Math.min(2, chaseRank.length)).forEach(function(o){ chasers[o.ai] = true; });
+    const chasePos = {};
+    chaseRank.slice(0, Math.min(2, chaseRank.length)).forEach(function(o, k){ chasePos[o.ai] = k; });
     state.attackers.forEach(function(a, ai){
       a.wing += dt * 35;
       a.leg += dt * (8 + skill * 12);
-      if(chasers[ai]){
+      if(chasePos[ai] !== undefined){
         const speed = 110 + skill * 110;
         // Pursuit: cut off where the ball is going, not where it is, so
         // chasers meet fast balls instead of trailing them along the line.
         const bSpd = Math.hypot(b.vx, b.vy);
         const dist0 = Math.hypot(b.x - a.x, b.y - a.y);
         const lead = bSpd > 60 ? Math.min(0.5, dist0 / (speed * 2)) : 0;
-        const dx = (b.x + b.vx * lead) - a.x;
-        const dy = (b.y + b.vy * lead) - a.y;
+        // Primary hunts the ball; secondary takes a contain spot past it
+        // toward the east goal so the two never stack on one point.
+        // Targets stay inside the pitch (chasing edge balls is fine,
+        // aiming past the line is not).
+        const second = chasePos[ai] === 1;
+        const px = Math.max(40, Math.min(W - 40, (b.x + b.vx * lead) + (second ? 30 : 0)));
+        const py = Math.max(48, Math.min(H - 48, (b.y + b.vy * lead) + (second ? (ai % 2 ? 26 : -26) : 0)));
+        const dx = px - a.x;
+        const dy = py - a.y;
         const dist = Math.sqrt(dx*dx + dy*dy);
         const targetAng = Math.atan2(dy, dx) - Math.PI/2;
         const wander = (1 - skill) * Math.sin(state.time * 5 + state.seed + ai * 1.7) * 0.45;
@@ -1145,7 +1155,9 @@ function updateTestPhysics(state, dt, W, H){
         if(dist > 18){
           a.x += Math.cos(a.angle + Math.PI/2) * speed * dt;
           a.y += Math.sin(a.angle + Math.PI/2) * speed * dt;
-        } else if(!state.kicked || Math.abs(b.vx) < 60){
+        }
+        // Kick on actual ball contact, not role-spot arrival.
+        if(Math.hypot(b.x - a.x, b.y - a.y) <= 18 && (!state.kicked || Math.abs(b.vx) < 60)){
           westKick(a);
         }
       } else {
@@ -1173,7 +1185,13 @@ function updateTestPhysics(state, dt, W, H){
     // No one holds the goal line anymore: #1 hunts the ball end to end
     // and counters west on winning it, same as #2/#3 below. ---
 
-    // --- East defenders: chase the ball, counter toward the west goal ---
+    // --- East defenders: rank-0 hunts the ball, the rest take goalside
+    // contain spots between ball and goal so all three never pile up ---
+    const eastRank = state.goalies.map(function(d, di){
+      return {di: di, d: Math.hypot(b.x - d.x, b.y - d.y)};
+    }).sort(function(p, q){ return p.d - q.d; });
+    const eastPos = {};
+    eastRank.forEach(function(o, k){ eastPos[o.di] = k; });
     state.goalies.forEach(function(d, di){
       d.wing += dt * 30;
       d.leg += dt * 8;
@@ -1182,8 +1200,16 @@ function updateTestPhysics(state, dt, W, H){
       const dbSpd = Math.hypot(b.vx, b.vy);
       const dist0 = Math.hypot(b.x - d.x, b.y - d.y);
       const dlead = dbSpd > 60 ? Math.min(0.5, dist0 / (dspeed * 2)) : 0;
-      const dx = (b.x + b.vx * dlead) - d.x;
-      const dy = (b.y + b.vy * dlead) - d.y;
+      const ri = eastPos[di];
+      // Tight contain: trail the ball a few body-lengths goalside so the
+      // trailers stay in the play and rotate the lead naturally.
+      // Targets stay inside the pitch.
+      const ex = Math.max(40, Math.min(W - 40,
+        (b.x + b.vx * dlead) + (state.gx - (b.x + b.vx * dlead)) * 0.10 * ri));
+      const ey = Math.max(48, Math.min(H - 48,
+        (b.y + b.vy * dlead) + (H * 0.5 - (b.y + b.vy * dlead)) * 0.05 * ri));
+      const dx = ex - d.x;
+      const dy = ey - d.y;
       const dist = Math.sqrt(dx*dx + dy*dy);
       const targetAng = Math.atan2(dy, dx) - Math.PI/2;
       d.angle = turnToward(d.angle, targetAng, Math.min(1, dt * (5 + skill * 7)));
@@ -1191,7 +1217,10 @@ function updateTestPhysics(state, dt, W, H){
       if(dist > 20){
         d.x += Math.cos(d.angle + Math.PI/2) * speed * dt;
         d.y += Math.sin(d.angle + Math.PI/2) * speed * dt;
-      } else if(!state.kicked || Math.abs(b.vx) < 60){
+      }
+      // Kick on actual ball contact; winning it off west is a tackle.
+      if(Math.hypot(b.x - d.x, b.y - d.y) <= 20 && (!state.kicked || Math.abs(b.vx) < 60)){
+        const wasWest = (state.poss === 'west');
         state.kicked = true;
         state.kickCd = 0.6;
         state.poss = 'east';
@@ -1201,6 +1230,33 @@ function updateTestPhysics(state, dt, W, H){
         const cSpd = 170 + skill * 120;
         b.vx = Math.cos(cAng) * cSpd;
         b.vy = Math.sin(cAng) * cSpd;
+        setHudResult((wasWest ? 'TACKLE ' : 'COUNTER ') + d.num, '#38bdf8');
+      }
+    });
+
+    // --- Teammate spacing: same-team flies repel inside 38px so they
+    // stop piling onto one spot and shoving in a scrum. Chasers keep
+    // their targets; this only opens room around them. Wall-aware: never
+    // shove a teammate out of the pitch near the edges. ---
+    [state.attackers, state.goalies].forEach(function(team){
+      for(let i = 0; i < team.length; i++){
+        for(let j = i + 1; j < team.length; j++){
+          const fa = team[i], fc = team[j];
+          const sx = fa.x - fc.x, sy = fa.y - fc.y;
+          const sd = Math.hypot(sx, sy);
+          if(sd > 0.01 && sd < 38){
+            const mag = (38 - sd) * Math.min(1, dt * 6) * 0.5;
+            const anx = sx / sd, any = sy / sd;
+            let fx = anx * mag, fy = any * mag;
+            if((fa.x < 64 && fx < 0) || (fa.x > W - 64 && fx > 0)) fx = 0;
+            if((fa.y < 68 && fy < 0) || (fa.y > H - 68 && fy > 0)) fy = 0;
+            fa.x += fx; fa.y += fy;
+            let hx = -anx * mag, hy = -any * mag;
+            if((fc.x < 64 && hx < 0) || (fc.x > W - 64 && hx > 0)) hx = 0;
+            if((fc.y < 68 && hy < 0) || (fc.y > H - 68 && hy > 0)) hy = 0;
+            fc.x += hx; fc.y += hy;
+          }
+        }
       }
     });
 
