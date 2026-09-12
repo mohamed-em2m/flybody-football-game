@@ -29,18 +29,20 @@ from flybody.tasks.trajectory_loaders import (
 )
 
 
-def flight_imitation(ref_path: str | None = None,
-                     wpg_pattern_path: str | None = None,
-                     force_actuators: bool = False,
-                     disable_legs: bool = True,
-                     traj_indices: Sequence[int] | None = None,
-                     randomize_start_step: bool = True,
-                     joint_filter: float = 0.,
-                     future_steps: int = 5,
-                     random_state: np.random.RandomState | None = None,
-                     terminal_com_dist: float = 2.0):
+def flight_imitation(
+    ref_path: str | None = None,
+    wpg_pattern_path: str | None = None,
+    force_actuators: bool = False,
+    disable_legs: bool = True,
+    traj_indices: Sequence[int] | None = None,
+    randomize_start_step: bool = True,
+    joint_filter: float = 0.0,
+    future_steps: int = 5,
+    random_state: np.random.RandomState | None = None,
+    terminal_com_dist: float = 2.0,
+):
     """Requires a fruitfly to track a flying reference.
-  
+
     Args:
         ref_path: Path to reference trajectory dataset. If None, task will
             run with InferenceFlightTrajectoryLoader, without loading actual
@@ -76,36 +78,43 @@ def flight_imitation(ref_path: str | None = None,
             path=ref_path,
             traj_indices=traj_indices,
             randomize_start_step=randomize_start_step,
-            random_state=random_state)
+            random_state=random_state,
+        )
     else:
         traj_generator = InferenceFlightTrajectoryLoader()
     # Build the task.
     time_limit = 0.6
-    task = FlightImitationWBPG(walker=walker,
-                               arena=arena,
-                               wbpg=wbpg,
-                               traj_generator=traj_generator,
-                               terminal_com_dist=terminal_com_dist,
-                               initialize_qvel=True,
-                               force_actuators=force_actuators,
-                               disable_legs=disable_legs,
-                               time_limit=time_limit,
-                               joint_filter=joint_filter,
-                               future_steps=future_steps)
+    task = FlightImitationWBPG(
+        walker=walker,
+        arena=arena,
+        wbpg=wbpg,
+        traj_generator=traj_generator,
+        terminal_com_dist=terminal_com_dist,
+        initialize_qvel=True,
+        force_actuators=force_actuators,
+        disable_legs=disable_legs,
+        time_limit=time_limit,
+        joint_filter=joint_filter,
+        future_steps=future_steps,
+    )
 
-    return composer.Environment(time_limit=time_limit,
-                                task=task,
-                                random_state=random_state,
-                                strip_singleton_obs_buffer_dim=True)
+    return composer.Environment(
+        time_limit=time_limit,
+        task=task,
+        random_state=random_state,
+        strip_singleton_obs_buffer_dim=True,
+    )
 
 
-def walk_imitation(ref_path: str | None = None,
-                   force_actuators: bool = False,
-                   disable_wings: bool = True,
-                   traj_indices: Sequence[int] | None = None,
-                   random_state: np.random.RandomState | None = None,
-                   terminal_com_dist: float = 0.3,
-                   joint_filter: float = 0.01):
+def walk_imitation(
+    ref_path: str | None = None,
+    force_actuators: bool = False,
+    disable_wings: bool = True,
+    traj_indices: Sequence[int] | None = None,
+    random_state: np.random.RandomState | None = None,
+    terminal_com_dist: float = 0.3,
+    joint_filter: float = 0.01,
+):
     """Requires a fruitfly to track a reference walking fly.
 
     Args:
@@ -132,34 +141,41 @@ def walk_imitation(ref_path: str | None = None,
     if ref_path is not None:
         inference_mode = False
         traj_generator = HDF5WalkingTrajectoryLoader(
-            path=ref_path, random_state=random_state, traj_indices=traj_indices)
+            path=ref_path, random_state=random_state, traj_indices=traj_indices
+        )
     else:
         inference_mode = True
         traj_generator = InferenceWalkingTrajectoryLoader()
     # Build a task that rewards the agent for tracking a walking ghost.
     time_limit = 10.0
-    task = WalkImitation(walker=walker,
-                         arena=arena,
-                         traj_generator=traj_generator,
-                         terminal_com_dist=terminal_com_dist,
-                         mocap_joint_names=traj_generator.get_joint_names(),
-                         mocap_site_names=traj_generator.get_site_names(),
-                         inference_mode=inference_mode,
-                         force_actuators=force_actuators,
-                         disable_wings=disable_wings,
-                         joint_filter=joint_filter,
-                         future_steps=64,
-                         time_limit=time_limit)
+    task = WalkImitation(
+        walker=walker,
+        arena=arena,
+        traj_generator=traj_generator,
+        terminal_com_dist=terminal_com_dist,
+        mocap_joint_names=traj_generator.get_joint_names(),
+        mocap_site_names=traj_generator.get_site_names(),
+        inference_mode=inference_mode,
+        force_actuators=force_actuators,
+        disable_wings=disable_wings,
+        joint_filter=joint_filter,
+        future_steps=64,
+        time_limit=time_limit,
+    )
 
-    return composer.Environment(time_limit=time_limit,
-                                task=task,
-                                random_state=random_state,
-                                strip_singleton_obs_buffer_dim=True)
+    return composer.Environment(
+        time_limit=time_limit,
+        task=task,
+        random_state=random_state,
+        strip_singleton_obs_buffer_dim=True,
+    )
 
 
-def walk_on_ball(force_actuators: bool = False,
-                 disable_wings: bool = True,
-                 random_state: np.random.RandomState | None = None):
+def walk_on_ball(
+    force_actuators: bool = False,
+    disable_wings: bool = True,
+    random_state: np.random.RandomState | None = None,
+):
     """Requires a tethered fruitfly to walk on a floating ball.
 
     Args:
@@ -173,33 +189,41 @@ def walk_on_ball(force_actuators: bool = False,
     """
     # Build a fruitfly walker and arena.
     walker = fruitfly.FruitFly
-    arena = BallFloor(ball_pos=(-0.05, 0, -0.419),
-                      ball_radius=0.454,
-                      ball_density=0.0025,
-                      skybox=False)
+    arena = BallFloor(
+        ball_pos=(-0.05, 0, -0.419),
+        ball_radius=0.454,
+        ball_density=0.0025,
+        skybox=False,
+    )
     # Build a task that rewards the agent for tracking a walking ghost.
-    time_limit = 2.
-    task = WalkOnBall(walker=walker,
-                      arena=arena,
-                      force_actuators=force_actuators,
-                      disable_wings=disable_wings,
-                      joint_filter=0.01,
-                      adhesion_filter=0.007,
-                      time_limit=time_limit)
+    time_limit = 2.0
+    task = WalkOnBall(
+        walker=walker,
+        arena=arena,
+        force_actuators=force_actuators,
+        disable_wings=disable_wings,
+        joint_filter=0.01,
+        adhesion_filter=0.007,
+        time_limit=time_limit,
+    )
 
-    return composer.Environment(time_limit=time_limit,
-                                task=task,
-                                random_state=random_state,
-                                strip_singleton_obs_buffer_dim=True)
+    return composer.Environment(
+        time_limit=time_limit,
+        task=task,
+        random_state=random_state,
+        strip_singleton_obs_buffer_dim=True,
+    )
 
 
-def vision_guided_flight(wpg_pattern_path: str | None = None,
-                         bumps_or_trench: str = 'bumps',
-                         force_actuators: bool = False,
-                         disable_legs: bool = True,
-                         random_state: np.random.RandomState | None = None,
-                         joint_filter: float = 0.,
-                         **kwargs_arena):
+def vision_guided_flight(
+    wpg_pattern_path: str | None = None,
+    bumps_or_trench: str = "bumps",
+    force_actuators: bool = False,
+    disable_legs: bool = True,
+    random_state: np.random.RandomState | None = None,
+    joint_filter: float = 0.0,
+    **kwargs_arena,
+):
     """Vision-guided flight tasks: 'bumps' and 'trench'.
 
     Args:
@@ -219,9 +243,9 @@ def vision_guided_flight(wpg_pattern_path: str | None = None,
         Environment for vision-guided flight task.
     """
 
-    if bumps_or_trench == 'bumps':
+    if bumps_or_trench == "bumps":
         arena = SineBumps
-    elif bumps_or_trench == 'trench':
+    elif bumps_or_trench == "trench":
         arena = SineTrench
     else:
         raise ValueError("Only 'bumps' and 'trench' terrains are supported.")
@@ -232,31 +256,37 @@ def vision_guided_flight(wpg_pattern_path: str | None = None,
     wbpg = WingBeatPatternGenerator(base_pattern_path=wpg_pattern_path)
     # Build task.
     time_limit = 0.4
-    task = VisionFlightImitationWBPG(walker=walker,
-                                     arena=arena,
-                                     wbpg=wbpg,
-                                     time_limit=time_limit,
-                                     force_actuators=force_actuators,
-                                     disable_legs=disable_legs,
-                                     joint_filter=joint_filter,
-                                     floor_contacts=True,
-                                     floor_contacts_fatal=True)
+    task = VisionFlightImitationWBPG(
+        walker=walker,
+        arena=arena,
+        wbpg=wbpg,
+        time_limit=time_limit,
+        force_actuators=force_actuators,
+        disable_legs=disable_legs,
+        joint_filter=joint_filter,
+        floor_contacts=True,
+        floor_contacts_fatal=True,
+    )
 
-    return composer.Environment(time_limit=time_limit,
-                                task=task,
-                                random_state=random_state,
-                                strip_singleton_obs_buffer_dim=True)
+    return composer.Environment(
+        time_limit=time_limit,
+        task=task,
+        random_state=random_state,
+        strip_singleton_obs_buffer_dim=True,
+    )
 
 
-def template_task(random_state: np.random.RandomState | None = None,
-                  force_actuators: bool = False,
-                  disable_wings: bool = True,
-                  joint_filter: float = 0.01,
-                  adhesion_filter: float = 0.007,
-                  time_limit: float = 1.,
-                  mjcb_control: Callable | None = None,
-                  observables_options: dict | None = None,
-                  action_corruptor: Callable | None = None):
+def template_task(
+    random_state: np.random.RandomState | None = None,
+    force_actuators: bool = False,
+    disable_wings: bool = True,
+    joint_filter: float = 0.01,
+    adhesion_filter: float = 0.007,
+    time_limit: float = 1.0,
+    mjcb_control: Callable | None = None,
+    observables_options: dict | None = None,
+    action_corruptor: Callable | None = None,
+):
     """An empty no-op walking task for testing.
 
     Args:
@@ -284,46 +314,56 @@ def template_task(random_state: np.random.RandomState | None = None,
     walker = fruitfly.FruitFly
     arena = floors.Floor()
     # Build a no-op task.
-    task = TemplateTask(walker=walker,
-                        arena=arena,
-                        force_actuators=force_actuators,
-                        disable_wings=disable_wings,
-                        joint_filter=joint_filter,
-                        adhesion_filter=adhesion_filter,
-                        observables_options=observables_options,
-                        mjcb_control=mjcb_control,
-                        action_corruptor=action_corruptor,
-                        time_limit=time_limit)
+    task = TemplateTask(
+        walker=walker,
+        arena=arena,
+        force_actuators=force_actuators,
+        disable_wings=disable_wings,
+        joint_filter=joint_filter,
+        adhesion_filter=adhesion_filter,
+        observables_options=observables_options,
+        mjcb_control=mjcb_control,
+        action_corruptor=action_corruptor,
+        time_limit=time_limit,
+    )
     # Reset control callback, if any.
     mujoco.set_mjcb_control(None)
-    return composer.Environment(time_limit=time_limit,
-                                task=task,
-                                random_state=random_state,
-                                strip_singleton_obs_buffer_dim=True)
+    return composer.Environment(
+        time_limit=time_limit,
+        task=task,
+        random_state=random_state,
+        strip_singleton_obs_buffer_dim=True,
+    )
 
 
-def football_vs(opponent_mode: str = 'static',
-                field_length: float = 4.0,
-                field_width: float = 3.0,
-                ball_radius: float = 0.15,
-                goal_width: float = 1.0,
-                goal_height: float = 0.6,
-                time_limit: float = 10.0,
-                force_actuators: bool = False,
-                disable_wings: bool = True,
-                joint_filter: float = 0.01,
-                random_state: np.random.RandomState | None = None,
-                **task_kwargs):
-    """Fly-vs-fly football: attacker scores in EAST goal, goalie defends it.
+def football_vs(
+    opponent_mode: str = "static",
+    field_length: float = 4.0,
+    field_width: float = 3.0,
+    ball_radius: float = 0.15,
+    goal_width: float = 1.0,
+    goal_height: float = 0.6,
+    time_limit: float = 10.0,
+    force_actuators: bool = False,
+    disable_wings: bool = True,
+    joint_filter: float = 0.01,
+    n_per_team: int = 1,
+    west_spawns: list | None = None,
+    east_spawns: list | None = None,
+    extended_obs: bool = False,
+    random_state: np.random.RandomState | None = None,
+    **task_kwargs,
+):
+    """Fly-vs-fly football: west team attacks EAST goal, east team defends.
 
-    Two flies share one physics: attacker (trains to push the ball into
-    the +x goal) and goalie (tries to stop it, can score -x goal).
+    Two teams of flies share one physics. Both sides can score in the
+    opponent goal, intercept the ball, complete passes and shoot; per-team
+    rewards come from ``task.get_side_rewards``.
 
     Args:
-        opponent_mode: 'static' (goalie holds still, attacker-only 59-dim
-            action, recommended to start), 'scripted' (goalie uses a
-            goalie_policy callable), or 'self_play' (concat attacker+goalie
-            action for competitive training).
+        opponent_mode: 'static' (west_0 only, 59-dim action, recommended
+            to start), 'scripted' (per-fly policies via goalie_policy /
+            extra_policies), or 'self_play' (concat of every fly).
         field_length: Field size along x (cm).
         field_width: Field size along y (cm).
         ball_radius: Ball radius (cm). 0.15 ~= 3mm diameter fly-scale ball.
@@ -331,30 +371,48 @@ def football_vs(opponent_mode: str = 'static',
         goal_height: Goal crossbar height (cm).
         time_limit: Episode time limit (s).
         force_actuators: Whether to use force actuators.
-        disable_wings: Retract/disable wings on both flies.
+        disable_wings: Retract/disable wings on all flies.
         joint_filter: Joint actuator filter timescale.
+        n_per_team: Flies per side. 1 keeps legacy attacker/goalie names
+            (old checkpoints keep loading); N>1 uses west_{i}/east_{i}
+            with auto formations and team colors.
+        west_spawns: Optional [(x, y)] * n_per_team overrides.
+        east_spawns: Optional [(x, y)] * n_per_team overrides.
+        extended_obs: Add ball_to_west_goal, possession, last_event and
+            nearest-fly vectors (auto-on when n_per_team > 1).
         random_state: Random state for reproducibility.
         **task_kwargs: Forwarded to FootballVs (goalie_policy,
-            attacker_spawn, goalie_spawn, goal_bonus, ...).
+            attacker_spawn, goalie_spawn, goal_bonus, pass_bonus,
+            shot_bonus, interception_bonus, save_bonus, ...).
 
     Returns:
-        Environment for fly-vs-fly football.
+        Environment for team fly football.
     """
     walker = fruitfly.FruitFly
-    arena = FootballArena(field_length=field_length,
-                          field_width=field_width,
-                          ball_radius=ball_radius,
-                          goal_width=goal_width,
-                          goal_height=goal_height)
-    task = FootballVs(walker=walker,
-                      arena=arena,
-                      time_limit=time_limit,
-                      force_actuators=force_actuators,
-                      disable_wings=disable_wings,
-                      joint_filter=joint_filter,
-                      opponent_mode=opponent_mode,
-                      **task_kwargs)
-    return composer.Environment(time_limit=time_limit,
-                                task=task,
-                                random_state=random_state,
-                                strip_singleton_obs_buffer_dim=True)
+    arena = FootballArena(
+        field_length=field_length,
+        field_width=field_width,
+        ball_radius=ball_radius,
+        goal_width=goal_width,
+        goal_height=goal_height,
+    )
+    task = FootballVs(
+        walker=walker,
+        arena=arena,
+        time_limit=time_limit,
+        force_actuators=force_actuators,
+        disable_wings=disable_wings,
+        joint_filter=joint_filter,
+        opponent_mode=opponent_mode,
+        n_per_team=n_per_team,
+        west_spawns=west_spawns,
+        east_spawns=east_spawns,
+        extended_obs=extended_obs,
+        **task_kwargs,
+    )
+    return composer.Environment(
+        time_limit=time_limit,
+        task=task,
+        random_state=random_state,
+        strip_singleton_obs_buffer_dim=True,
+    )

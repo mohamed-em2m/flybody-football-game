@@ -27,8 +27,8 @@ try:  # `python -m scripts.rollout_football_video`
 except ImportError:  # `python scripts/rollout_football_video.py`
     from .football_policy import flatten_obs, linear_action, load_policy
 
-import numpy as np
-import imageio.v2 as imageio
+import numpy as np  # noqa: E402  (after sys.path setup below)
+import imageio.v2 as imageio  # noqa: E402
 
 
 def make_policy(n_act, seed=0, policy_npz=None):
@@ -51,6 +51,38 @@ def make_policy(n_act, seed=0, policy_npz=None):
     return policy
 
 
+def draw_scoreboard(frame, task):
+    """PIL scoreboard overlay: score, possession, last event, team names.
+
+    MuJoCo has no text geoms, so jersey names/numbers live here (and in
+    the GUI), keyed by fly name. Never breaks the render: any failure
+    returns the frame untouched.
+    """
+    try:
+        from PIL import Image, ImageDraw
+
+        score = task.score
+        poss = task.possession_side
+        ev_name, ev_side, _ = task.last_event_info
+        west_names = " ".join(w.name for w in task.west)
+        east_names = " ".join(w.name for w in task.east)
+        img = Image.fromarray(frame)
+        d = ImageDraw.Draw(img)
+        d.rectangle([8, 8, 360, 78], fill=(0, 0, 0))
+        d.text((14, 12), f"W {score['west']} : {score['east']} E", fill=(255, 255, 255))
+        d.text(
+            (14, 28),
+            f"ball: {poss or '-'}   last: {ev_name}"
+            + (f" ({ev_side})" if ev_side else ""),
+            fill=(200, 200, 200),
+        )
+        d.text((14, 44), f"W: {west_names}", fill=(255, 110, 110))
+        d.text((14, 60), f"E: {east_names}", fill=(110, 160, 255))
+        return np.asarray(img)
+    except Exception:
+        return frame
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", default="videos/football_rollout.mp4")
@@ -70,6 +102,7 @@ def main():
         default=None,
         help="Trained policy from train_football_ars.py (runs/<name>/best.npz).",
     )
+    parser.add_argument("--n-per-team", type=int, default=1, help="Flies per side.")
     args = parser.parse_args()
     if os.path.dirname(args.out):
         os.makedirs(os.path.dirname(args.out), exist_ok=True)
@@ -79,6 +112,7 @@ def main():
     env = football_vs(
         opponent_mode=args.opponent,
         time_limit=args.time_limit,
+        n_per_team=args.n_per_team,
         random_state=np.random.RandomState(args.seed),
     )
     n_act = env.action_spec().shape[0]
@@ -105,8 +139,11 @@ def main():
             print(f"step {step}, t={env.physics.time():.2f}s", flush=True)
         if step % args.render_every == 0:
             frames.append(
-                env.physics.render(
-                    height=args.height, width=args.width, camera_id=camera_id
+                draw_scoreboard(
+                    env.physics.render(
+                        height=args.height, width=args.width, camera_id=camera_id
+                    ),
+                    env.task,
                 )
             )
         step += 1
@@ -115,7 +152,7 @@ def main():
     print(
         f"saved {args.out}: {len(frames)} frames, "
         f"{step} steps, total_reward={total_reward:.2f}, "
-        f"scored={env.task._scored}"
+        f"scored={env.task._scored}, score={env.task.score}"
     )
 
 
