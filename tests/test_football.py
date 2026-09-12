@@ -37,6 +37,27 @@ def test_football_self_play_action_dim():
         assert np.isfinite(ts.reward)
 
 
+def test_reward_shaping_penalizes_idleness():
+    import numpy as np
+    env = football_vs(opponent_mode='static', time_limit=10.0)
+    env.reset()
+    task = env.task
+    # Doing nothing at spawn must pay almost nothing.
+    r_rest = float(task.get_reward(env.physics))
+    assert r_rest < 0.5, r_rest
+    # Attacker next to the ball, ball rolling toward the east goal.
+    ball_pos = np.asarray(env.physics.named.data.qpos['football'][:3])
+    physics = env.physics
+    spawn_z = float(task._attacker.upright_pose.xpos[2])
+    physics.bind(task._root_joints['attacker']).qpos = np.array(
+        [ball_pos[0] - 0.2, ball_pos[1], spawn_z, 1, 0, 0, 0])
+    qvel = np.zeros(6)
+    qvel[0] = 2.0  # Ball flying toward +x (east goal).
+    physics.named.data.qvel['football'] = qvel
+    r_good = float(task.get_reward(physics))
+    assert r_good > r_rest + 0.5, (r_rest, r_good)
+
+
 def test_football_goal_detection():
     env = football_vs(opponent_mode='static', time_limit=10.0)
     env.reset()

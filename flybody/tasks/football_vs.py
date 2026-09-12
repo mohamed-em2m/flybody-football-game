@@ -19,7 +19,6 @@ import numpy as np
 from dm_control import composer
 from dm_control import mjcf
 from dm_control.composer.observation import observable
-from dm_control.utils import rewards
 from dm_env import specs
 
 from flybody.tasks.constants import (
@@ -80,7 +79,9 @@ class FootballVs(composer.Task):
                  goalie_policy=None,
                  attacker_spawn=(-1.0, 0.0),
                  goalie_spawn=None,
+                 ball_start=(0.0, 0.0),
                  ball_spawn_noise: float = 0.15,
+                 spawn_noise: float = 0.1,
                  goal_bonus: float = 10.0,
                  concede_penalty: float = 10.0,
                  observables_options: dict | None = None):
@@ -97,9 +98,14 @@ class FootballVs(composer.Task):
             opponent_mode: 'static', 'scripted', or 'self_play'.
             goalie_policy: Optional callable(step, physics) -> goalie action
                 used in scripted mode. If None, goalie holds (zeros).
-            attacker_spawn: (x, y) start for attacker.
+            attacker_spawn: (x, y) start for attacker. Uniform noise of
+                +/- spawn_noise is added every episode.
             goalie_spawn: (x, y) start for goalie. Defaults to in front of
                 east goal.
+            ball_start: (x, y) nominal ball start. Put it near the east
+                goal (e.g. (1.5, 0.)) for an easy curriculum, at the
+                center (0., 0.) for full-field play.
+            spawn_noise: Uniform noise (cm) added to fly spawns each episode.
             ball_spawn_noise: Uniform noise (cm) added to ball start x/y.
             goal_bonus: Sparse reward for scoring in east goal.
             concede_penalty: Penalty (positive number, subtracted) when ball
@@ -116,6 +122,8 @@ class FootballVs(composer.Task):
         if goalie_spawn is None:
             goalie_spawn = (arena.field_length / 2.0 - 0.5, 0.0)
         self._goalie_spawn = tuple(goalie_spawn)
+        self._ball_start = tuple(ball_start)
+        self._spawn_noise = spawn_noise
         self._ball_spawn_noise = ball_spawn_noise
         self._goal_bonus = goal_bonus
         self._concede_penalty = concede_penalty
@@ -125,6 +133,7 @@ class FootballVs(composer.Task):
         self._should_terminate = False
         self._scored = False
         self._conceded = False
+        self._init_goal_dist = 2.0
 
         physics_timestep = _WALK_PHYSICS_TIMESTEP
         control_timestep = _WALK_CONTROL_TIMESTEP
@@ -266,13 +275,20 @@ class FootballVs(composer.Task):
         self._conceded = False
 
         spawn_z = float(self._attacker.upright_pose.xpos[2])
-        # Attacker faces +x (east goal), goalie faces -x.
-        attacker_qpos = np.array([
-            self._attacker_spawn[0], self._attacker_spawn[1], spawn_z,
-            1, 0, 0, 0,
-        ])
+        # Attacker faces +x (east goal), goalie faces -x. Lateral spawn
+        # noise forces the policy to cope with varied starting geometries
+        # instead of memorizing one run-up.
+        ax = self._attacker_spawn[0] + random_state.uniform(
+            -self._spawn_noise, self._spawn_noise)
+        ay = self._attacker_spawn[1] + random_state.uniform(
+            -self._spawn_noise, self._spawn_noise)
+        gx0 = self._goalie_spawn[0] + random_state.uniform(
+            -self._spawn_noise, self._spawn_noise)
+        gy0 = self._goalie_spawn[1] + random_state.uniform(
+            -self._spawn_noise, self._spawn_noise)
+        attacker_qpos = np.array([ax, ay, spawn_z, 1, 0, 0, 0])
         goalie_qpos = np.array([
-            self._goalie_spawn[0], self._goalie_spawn[1], spawn_z,
+            gx0, gy0, spawn_z,
             0, 0, 0, 1,  # 180 deg yaw.
         ])
         physics.bind(self._root_joints['attacker']).qpos = attacker_qpos
@@ -280,15 +296,21 @@ class FootballVs(composer.Task):
         physics.bind(self._root_joints['attacker']).qvel = np.zeros(6)
         physics.bind(self._root_joints['goalie']).qvel = np.zeros(6)
 
-        # Ball at center + noise, resting on floor.
-        bx = random_state.uniform(-self._ball_spawn_noise,
-                                  self._ball_spawn_noise)
-        by = random_state.uniform(-self._ball_spawn_noise,
-                                  self._ball_spawn_noise)
+        # Ball at nominal start + noise, resting on floor.
+        bx = self._ball_start[0] + random_state.uniform(
+            -self._ball_spawn_noise, self._ball_spawn_noise)
+        by = self._ball_start[1] + random_state.uniform(
+            -self._ball_spawn_noise, self._ball_spawn_noise)
         ball_qpos = np.array(
             [bx, by, self._arena.ball_radius + 0.01, 1, 0, 0, 0])
         physics.named.data.qpos['football'] = ball_qpos
         physics.named.data.qvel['football'] = np.zeros(6)
+
+        # Reference distance for ball-progress reward.
+        east_goal = np.array(
+            [self._arena.east_goal_x, 0.0, self._arena.ball_radius])
+        self._init_goal_dist = float(
+            np.linalg.norm(np.asarray(ball_qpos[:3]) - east_goal))
 
         # Retract wings (bind MJCF elements directly, as in WalkImitation).
         # FootballFly entity hooks repeat this themselves; kept here so the
@@ -393,29 +415,40 @@ class FootballVs(composer.Task):
                     and ball_pos[2] < self._arena.goal_height)
 
     def get_reward_factors(self, physics):
+        """Shaped factors. Standing still scores ~0; moving the ball
+        toward the east goal is the only way to earn."""
         ball_pos, ball_vel = self._ball_state(physics)
         attacker_pos = self._walker_pos(physics, self._attacker)
         east_goal = np.array(
             [self._arena.east_goal_x, 0.0, self._arena.ball_radius])
 
+        # 1. Chase: tight exponential, ~0.05 at 1cm (spawn distance).
         d_attacker_ball = np.linalg.norm(attacker_pos - ball_pos)
-        approach = rewards.tolerance(d_attacker_ball,
-                                     bounds=(0, 0.1),
-                                     margin=2.0,
-                                     sigmoid='linear',
-                                     value_at_margin=0.0)
+        approach = float(np.exp(-3.0 * d_attacker_ball))
 
+        # 2. Ball closeness to goal: ~0.05 from midfield.
         d_ball_goal = np.linalg.norm(ball_pos - east_goal)
-        ball_to_goal = rewards.tolerance(d_ball_goal,
-                                         bounds=(0, 0.15),
-                                         margin=3.0,
-                                         sigmoid='linear',
-                                         value_at_margin=0.0)
+        ball_to_goal = float(np.exp(-1.5 * d_ball_goal))
 
-        # Ball velocity toward east goal (+x), scaled.
-        kick = np.tanh(2.0 * float(ball_vel[0])) * 0.5 + 0.5
+        # 3. Ball progress vs episode start. Positive only when the ball
+        # is closer to the goal than where it started.
+        progress = float(
+            np.tanh(self._init_goal_dist - d_ball_goal))
 
-        factors = np.array([approach, ball_to_goal, kick])
+        # 4. Signed ball velocity toward the east goal (+x). Zero at rest,
+        # negative when the ball rolls the wrong way.
+        kick = float(np.tanh(3.0 * ball_vel[0]))
+
+        # 5. Attacker root velocity toward the ball. Rewards running at
+        # the ball even before contact.
+        root_vel = np.asarray(
+            physics.bind(self._root_joints['attacker']).qvel[:3])
+        to_ball = ball_pos - attacker_pos
+        dist = np.linalg.norm(to_ball) + 1e-8
+        chase_vel = float(np.tanh(2.0 * np.dot(root_vel, to_ball / dist)))
+
+        factors = np.array(
+            [approach, ball_to_goal, progress, kick, chase_vel])
         if self._scored:
             factors = np.append(factors, self._goal_bonus)
         if self._conceded:
@@ -424,10 +457,10 @@ class FootballVs(composer.Task):
 
     def get_reward(self, physics):
         factors = self.get_reward_factors(physics)
-        # Shaped dense part in [0, ~2.5] + sparse goal bonus.
-        dense = float(0.4 * factors[0] + 1.0 * factors[1] +
-                      0.6 * factors[2])
-        sparse = float(np.sum(factors[3:])) if len(factors) > 3 else 0.0
+        dense = float(1.0 * factors[0] + 1.0 * factors[1] +
+                      1.0 * factors[2] + 1.0 * factors[3] +
+                      0.5 * factors[4])
+        sparse = float(np.sum(factors[5:])) if len(factors) > 5 else 0.0
         self._should_terminate = self.check_termination(physics)
         return dense + sparse
 
