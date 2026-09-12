@@ -675,20 +675,28 @@ function toggleTestPause(){
   if(btn) btn.textContent = testPaused ? '▶ Resume' : '❚❚ Pause';
 }
 
+function curNTeam(){
+  if(cur !== 'football_vs') return 1;
+  const n = parseInt(g('p_npt')) || 1;
+  return Math.max(1, Math.min(3, n));
+}
+
 function runNewTestRollout(seed, label, skill){
   if(seed === undefined) seed = (Date.now() % 100000) + (++testTrialCount) * 19;
-  if(label === undefined) label = 'Test Trial #' + testTrialCount;
+  const nn = curNTeam();
+  if(label === undefined) label = 'Test Trial #' + testTrialCount + (cur === 'football_vs' ? ' · ' + nn + 'v' + nn : '');
   if(skill === undefined) skill = (typeof simRet !== 'undefined' ? simRet : 0.01);
-  startTestRollout(seed, label, skill, true);
+  startTestRollout(seed, label, skill, true, nn);
   addL('▶ Test rollout #' + testTrialCount + ' (' + (TK[cur]?TK[cur].l:cur) + ') started [Skill: ' + skill.toFixed(3) + ']', 'if');
 }
 
 function runAnotherTrial(){
   testTrialCount++;
   const seed = Math.floor(Math.random() * 990000) + 1000;
-  const label = 'Trial #' + testTrialCount + ' (Seed #' + (seed % 999) + ')';
+  const nn = curNTeam();
+  const label = 'Trial #' + testTrialCount + ' (Seed #' + (seed % 999) + ')' + (cur === 'football_vs' ? ' · ' + nn + 'v' + nn : '');
   const skill = (typeof simRet !== 'undefined' ? simRet : 0.01);
-  startTestRollout(seed, label, skill, true);
+  startTestRollout(seed, label, skill, true, nn);
   addL('🎲 New test rollout trial #' + testTrialCount + ' started with fresh seed #' + (seed % 999), 'if');
 }
 
@@ -696,7 +704,7 @@ function replayHistoryItem(idx){
   if(!testHistory[idx]) return;
   const item = testHistory[idx];
   document.querySelectorAll('.tes-item').forEach((el, i) => el.classList.toggle('active', i === idx));
-  startTestRollout(item.seed, item.label, item.skill, false);
+  startTestRollout(item.seed, item.label, item.skill, false, item.n || 1);
 }
 
 function updateTestHistoryUI(){
@@ -718,7 +726,7 @@ function updateTestHistoryUI(){
 }
 
 // Drawing fruit fly (Drosophila melanogaster) in top-down perspective
-function drawFruitFlyTopDown(ctx, x, y, angle, wingPhase, color, size, legPhase){
+function drawFruitFlyTopDown(ctx, x, y, angle, wingPhase, color, size, legPhase, num, badgeColor){
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
@@ -823,9 +831,22 @@ function drawFruitFlyTopDown(ctx, x, y, angle, wingPhase, color, size, legPhase)
   });
 
   ctx.restore();
+
+  // Jersey number badge (unrotated, above the fly)
+  if(num !== undefined && num !== null){
+    ctx.fillStyle = 'rgba(0,0,0,.55)';
+    ctx.beginPath();
+    ctx.arc(x, y - 20 * s, 9, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = badgeColor || '#fff';
+    ctx.font = 'bold 11px Inter,sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(num, x, y - 16 * s);
+    ctx.textAlign = 'left';
+  }
 }
 
-function startTestRollout(seed, label, skill, pushHistory = true){
+function startTestRollout(seed, label, skill, pushHistory = true, nTeamOverride){
   if(testAnimId) cancelAnimationFrame(testAnimId);
   testRunning = true;
   testPaused = false;
@@ -874,10 +895,31 @@ function startTestRollout(seed, label, skill, pushHistory = true){
     state.gx = W * 0.86;
     state.gh = H * 0.38;
     state.ball = {x: W * 0.46 + (R() - 0.5) * 40, y: H * 0.5 + (R() - 0.5) * 40, vx: 0, vy: 0, r: 8.5};
-    state.attacker = {x: W * 0.16 + (R() - 0.5) * 30, y: H * 0.5 + (R() - 0.5) * 70, angle: 0, wing: 0, leg: 0};
-    state.goalie = {x: state.gx - 18, y: H * 0.5, vy: 0, wing: 0, leg: 0};
+    // Team size mirrors the env's n_per_team (Players Per Team selector).
+    let nTeam = (typeof nTeamOverride === 'number') ? nTeamOverride : (parseInt(g('p_npt')) || 1);
+    nTeam = Math.max(1, Math.min(3, nTeam));
+    state.nTeam = nTeam;
+    state.attackers = [];
+    for(let i = 0; i < nTeam; i++){
+      state.attackers.push({x: W * 0.16 - i * 36 + (R() - 0.5) * 24,
+        y: H * 0.5 + (i - (nTeam - 1) / 2) * 70 + (R() - 0.5) * 30,
+        angle: -Math.PI / 2, wing: R() * 6, leg: R() * 6, num: i + 1});
+    }
+    state.goalies = [];
+    for(let i = 0; i < nTeam; i++){
+      if(i === 0){
+        state.goalies.push({x: state.gx - 18, y: H * 0.5, vy: 0, wing: 0, leg: 0, num: 1, keeper: true, angle: -Math.PI / 2});
+      } else {
+        state.goalies.push({x: W * 0.70 + (i - 1) * 30 + (R() - 0.5) * 24,
+          y: H * 0.5 + (i - nTeam / 2) * 70 + (R() - 0.5) * 30,
+          angle: Math.PI / 2, wing: R() * 6, leg: R() * 6, num: i + 1, keeper: false});
+      }
+    }
+    state.attacker = state.attackers[0];
+    state.goalie = state.goalies[0];
     state.trail = [];
     state.kicked = false;
+    state.lastPass = null;
   } else if(task === 'flight_imitation'){
     state.fly = {x: W * 0.2, y: H * 0.5, roll: 0, pitch: 0, wing: 0};
     state.target = {x: W * 0.2, y: H * 0.5};
@@ -905,7 +947,7 @@ function startTestRollout(seed, label, skill, pushHistory = true){
   activeTestState = state;
 
   if(pushHistory){
-    testHistory.unshift({seed, label, skill, task});
+    testHistory.unshift({seed, label, skill, task, n: state.nTeam || 1});
     if(testHistory.length > 25) testHistory.pop();
     updateTestHistoryUI();
   }
@@ -951,31 +993,42 @@ function updateTestPhysics(state, dt, W, H){
   const R = state.R;
 
   if(state.task === 'football_vs'){
-    const att = state.attacker;
     const b = state.ball;
-    const g = state.goalie;
+    const gk = state.goalies[0];
 
-    att.wing += dt * 35;
-    att.leg += dt * (8 + skill * 12);
-    g.wing += dt * 30;
-    g.leg += dt * 8;
-
-    // Attacker AI steering towards ball
-    const dx = b.x - att.x;
-    const dy = b.y - att.y;
-    const dist = Math.sqrt(dx*dx + dy*dy);
-    const targetAng = Math.atan2(dy, dx) - Math.PI/2;
-    const wander = (1 - skill) * Math.sin(state.time * 5 + state.seed) * 0.45;
-    att.angle += (targetAng + wander - att.angle) * Math.min(1, dt * (6 + skill * 8));
-
-    const speed = 110 + skill * 110;
-    if(dist > 18){
-      att.x += Math.cos(att.angle + Math.PI/2) * speed * dt;
-      att.y += Math.sin(att.angle + Math.PI/2) * speed * dt;
-    } else {
-      // Ball contact / kick
-      if(!state.kicked || Math.abs(b.vx) < 15){
-        state.kicked = true;
+    // --- West team: closest two chase, rest make support runs ahead ---
+    function westKick(a){
+      state.kicked = true;
+      // Pass to the most open mate (far from defenders, kicker under
+      // pressure), or shoot at the east goal.
+      let pressD = 1e9;
+      state.goalies.forEach(function(d){
+        const dd = Math.hypot(d.x - a.x, d.y - a.y);
+        if(dd < pressD) pressD = dd;
+      });
+      let bestMate = null, bestOpen = -1e9;
+      state.attackers.forEach(function(m){
+        if(m === a) return;
+        let md = 1e9;
+        state.goalies.forEach(function(d){
+          const dd = Math.hypot(d.x - m.x, d.y - m.y);
+          if(dd < md) md = dd;
+        });
+        const open = md - pressD;
+        if(open > bestOpen){ bestOpen = open; bestMate = m; }
+      });
+      const passP = bestMate ? (0.50 + 0.35 * (1 - skill)) : 0;
+      if(bestMate && bestOpen > 10 && R() < passP){
+        const lead = 0.35;
+        const tx = bestMate.x + Math.cos(bestMate.angle + Math.PI/2) * 50 * lead;
+        const ty = bestMate.y + Math.sin(bestMate.angle + Math.PI/2) * 50 * lead;
+        const pAng = Math.atan2(ty - b.y, tx - b.x);
+        const pSpd = 200 + skill * 60;
+          b.vx = Math.cos(pAng) * pSpd;
+          b.vy = Math.sin(pAng) * pSpd;
+          state.lastPass = {from: a.num, to: bestMate.num};
+          setHudResult('PASS ' + a.num + ' → ' + bestMate.num, '#facc15');
+      } else {
         const cornerAim = (R() > 0.5 ? 1 : -1) * (state.gh * 0.38) * Math.min(1, skill * 1.3);
         const aimError = (1 - skill) * (R() - 0.5) * 80;
         const targetY = H * 0.5 + cornerAim + aimError;
@@ -985,6 +1038,79 @@ function updateTestPhysics(state, dt, W, H){
         b.vy = Math.sin(kickAng) * kSpd;
       }
     }
+    const chaseRank = state.attackers.map(function(a, ai){
+      return {ai: ai, d: Math.hypot(b.x - a.x, b.y - a.y)};
+    }).sort(function(p, q){ return p.d - q.d; });
+    const chasers = {};
+    chaseRank.slice(0, Math.min(2, chaseRank.length)).forEach(function(o){ chasers[o.ai] = true; });
+    state.attackers.forEach(function(a, ai){
+      a.wing += dt * 35;
+      a.leg += dt * (8 + skill * 12);
+      if(chasers[ai]){
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        const targetAng = Math.atan2(dy, dx) - Math.PI/2;
+        const wander = (1 - skill) * Math.sin(state.time * 5 + state.seed + ai * 1.7) * 0.45;
+        a.angle += (targetAng + wander - a.angle) * Math.min(1, dt * (6 + skill * 8));
+        const speed = 110 + skill * 110;
+        if(dist > 18){
+          a.x += Math.cos(a.angle + Math.PI/2) * speed * dt;
+          a.y += Math.sin(a.angle + Math.PI/2) * speed * dt;
+        } else if(!state.kicked || Math.abs(b.vx) < 60){
+          westKick(a);
+        }
+      } else {
+        // Support run: push ahead of the ball, spread vertically.
+        const tx = Math.min(b.x + 150, state.gx - 70);
+        const ty = H * 0.5 + (ai - (state.attackers.length - 1) / 2) * 90;
+        const dx = tx - a.x;
+        const dy = ty - a.y;
+        const targetAng = Math.atan2(dy, dx) - Math.PI/2;
+        a.angle += (targetAng - a.angle) * Math.min(1, dt * 4);
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        const speed = 90 + skill * 90;
+        if(dist > 12){
+          a.x += Math.cos(a.angle + Math.PI/2) * speed * dt;
+          a.y += Math.sin(a.angle + Math.PI/2) * speed * dt;
+        }
+        // Opportunistic touch if the ball comes to them.
+        if(Math.hypot(b.x - a.x, b.y - a.y) <= 18 && (!state.kicked || Math.abs(b.vx) < 60)){
+          westKick(a);
+        }
+      }
+    });
+
+    // --- Keeper tracks the ball along the east line ---
+    gk.wing += dt * 30;
+    gk.leg += dt * 8;
+    const goalieTargetY = Math.max(H*0.5 - state.gh*0.4, Math.min(H*0.5 + state.gh*0.4, b.y));
+    gk.y += (goalieTargetY - gk.y) * Math.min(1, dt * (3 + (1 - skill) * 3));
+
+    // --- East defenders: chase the ball, counter toward the west goal ---
+    state.goalies.forEach(function(d, di){
+      if(di === 0) return;
+      d.wing += dt * 30;
+      d.leg += dt * 8;
+      const dx = b.x - d.x;
+      const dy = b.y - d.y;
+      const dist = Math.sqrt(dx*dx + dy*dy);
+      const targetAng = Math.atan2(dy, dx) - Math.PI/2;
+      d.angle += (targetAng - d.angle) * Math.min(1, dt * (5 + skill * 7));
+      const speed = 100 + skill * 100;
+      if(dist > 20){
+        d.x += Math.cos(d.angle + Math.PI/2) * speed * dt;
+        d.y += Math.sin(d.angle + Math.PI/2) * speed * dt;
+      } else if(!state.kicked || Math.abs(b.vx) < 60){
+        state.kicked = true;
+        const aimError = (1 - skill) * (R() - 0.5) * 70;
+        const targetY = H * 0.5 + aimError;
+        const cAng = Math.atan2(targetY - b.y, 22 - b.x);
+        const cSpd = 170 + skill * 120;
+        b.vx = Math.cos(cAng) * cSpd;
+        b.vy = Math.sin(cAng) * cSpd;
+      }
+    });
 
     // Ball physics
     b.x += b.vx * dt;
@@ -998,14 +1124,10 @@ function updateTestPhysics(state, dt, W, H){
       b.y = Math.max(29, Math.min(H - 29, b.y));
     }
 
-    // Goalie tracking
-    const goalieTargetY = Math.max(H*0.5 - state.gh*0.4, Math.min(H*0.5 + state.gh*0.4, b.y));
-    g.y += (goalieTargetY - g.y) * Math.min(1, dt * (3 + (1 - skill) * 3));
-
-    // Goal detection
+    // Goal detection east (keeper = goalies[0])
     if(!state.done && b.x >= state.gx - 12){
       if(Math.abs(b.y - H*0.5) <= state.gh * 0.5){
-        if(Math.abs(b.y - g.y) < 22 && b.x < state.gx + 5){
+        if(Math.abs(b.y - gk.y) < 22 && b.x < state.gx + 5){
           state.outcome = 'SAVED BY GOALIE';
           state.done = true;
           b.vx = -b.vx * 0.35;
@@ -1026,6 +1148,27 @@ function updateTestPhysics(state, dt, W, H){
         }
       } else {
         state.outcome = 'SHOT WIDE';
+        state.done = true;
+        setHudResult('MISS', '#94a3b8');
+      }
+    }
+
+    // Goal detection west (east team scores the counter)
+    if(!state.done && b.x <= 34){
+      if(Math.abs(b.y - H*0.5) <= state.gh * 0.5){
+        state.outcome = 'EAST SCORES!';
+        state.done = true;
+        setHudResult('EAST GOAL', '#38bdf8');
+        for(let i=0; i<30; i++){
+          state.particles.push({
+            x: b.x, y: b.y,
+            vx: (Math.random()-0.5)*180, vy: (Math.random()-0.5)*180,
+            col: ['#38bdf8','#facc15','#ffffff','#22c55e'][i%4],
+            life: 1.0
+          });
+        }
+      } else {
+        state.outcome = 'WIDE WEST';
         state.done = true;
         setHudResult('MISS', '#94a3b8');
       }
@@ -1206,13 +1349,15 @@ function renderTestEnvironment(ctx, W, H, state){
     ctx.arc(b.x, b.y, b.r * 0.42, 0, Math.PI * 2);
     ctx.fill();
 
-    // Goalie Fly (Cyan/Blue Fly)
-    const g = state.goalie;
-    drawFruitFlyTopDown(ctx, g.x, g.y, -Math.PI/2, g.wing, '#0284c7', 0.9, g.leg);
+    // East team flies (blue, keeper first) with jersey numbers
+    state.goalies.forEach(function(g){
+      drawFruitFlyTopDown(ctx, g.x, g.y, -Math.PI/2, g.wing, '#0284c7', 0.9, g.leg, g.num, '#7dd3fc');
+    });
 
-    // Attacker Fly (Orange/Amber Fly)
-    const att = state.attacker;
-    drawFruitFlyTopDown(ctx, att.x, att.y, att.angle, att.wing, '#d97706', 1.0, att.leg);
+    // West team flies (orange) with jersey numbers
+    state.attackers.forEach(function(a){
+      drawFruitFlyTopDown(ctx, a.x, a.y, a.angle, a.wing, '#d97706', 1.0, a.leg, a.num, '#fcd34d');
+    });
 
   } else if(state.task === 'flight_imitation'){
     // Flight 3D grid arena
