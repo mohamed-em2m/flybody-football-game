@@ -1064,10 +1064,17 @@ function startTestRollout(seed, label, skill, pushHistory = true, nTeamOverride)
   testAnimId = requestAnimationFrame(loop);
 }
 
+// Shortest-arc steering: plain lerp across the ±π branch cut spins forever
+// instead of turning (a fly due-east of its target jitters and drifts).
+function turnToward(cur, target, k){
+  let d = target - cur;
+  d = Math.atan2(Math.sin(d), Math.cos(d));
+  return cur + d * k;
+}
+
 function updateTestPhysics(state, dt, W, H){
   const skill = state.skill;
   const R = state.R;
-
   if(state.task === 'football_vs'){
     const b = state.ball;
     const gk = state.goalies[0];
@@ -1125,13 +1132,18 @@ function updateTestPhysics(state, dt, W, H){
       a.wing += dt * 35;
       a.leg += dt * (8 + skill * 12);
       if(chasers[ai]){
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
+        const speed = 110 + skill * 110;
+        // Pursuit: cut off where the ball is going, not where it is, so
+        // chasers meet fast balls instead of trailing them along the line.
+        const bSpd = Math.hypot(b.vx, b.vy);
+        const dist0 = Math.hypot(b.x - a.x, b.y - a.y);
+        const lead = bSpd > 60 ? Math.min(0.5, dist0 / (speed * 2)) : 0;
+        const dx = (b.x + b.vx * lead) - a.x;
+        const dy = (b.y + b.vy * lead) - a.y;
         const dist = Math.sqrt(dx*dx + dy*dy);
         const targetAng = Math.atan2(dy, dx) - Math.PI/2;
         const wander = (1 - skill) * Math.sin(state.time * 5 + state.seed + ai * 1.7) * 0.45;
-        a.angle += (targetAng + wander - a.angle) * Math.min(1, dt * (6 + skill * 8));
-        const speed = 110 + skill * 110;
+        a.angle = turnToward(a.angle, targetAng + wander, Math.min(1, dt * (6 + skill * 8)));
         if(dist > 18){
           a.x += Math.cos(a.angle + Math.PI/2) * speed * dt;
           a.y += Math.sin(a.angle + Math.PI/2) * speed * dt;
@@ -1145,7 +1157,7 @@ function updateTestPhysics(state, dt, W, H){
         const dx = tx - a.x;
         const dy = ty - a.y;
         const targetAng = Math.atan2(dy, dx) - Math.PI/2;
-        a.angle += (targetAng - a.angle) * Math.min(1, dt * 4);
+        a.angle = turnToward(a.angle, targetAng, Math.min(1, dt * 4));
         const dist = Math.sqrt(dx*dx + dy*dy);
         const speed = 90 + skill * 90;
         if(dist > 12){
@@ -1179,12 +1191,17 @@ function updateTestPhysics(state, dt, W, H){
       if(di === 0) return;
       d.wing += dt * 30;
       d.leg += dt * 8;
-      const dx = b.x - d.x;
-      const dy = b.y - d.y;
+      const dspeed = 100 + skill * 100;
+      // Pursuit: cut off where the ball is going, not where it is.
+      const dbSpd = Math.hypot(b.vx, b.vy);
+      const dist0 = Math.hypot(b.x - d.x, b.y - d.y);
+      const dlead = dbSpd > 60 ? Math.min(0.5, dist0 / (dspeed * 2)) : 0;
+      const dx = (b.x + b.vx * dlead) - d.x;
+      const dy = (b.y + b.vy * dlead) - d.y;
       const dist = Math.sqrt(dx*dx + dy*dy);
       const targetAng = Math.atan2(dy, dx) - Math.PI/2;
-      d.angle += (targetAng - d.angle) * Math.min(1, dt * (5 + skill * 7));
-      const speed = 100 + skill * 100;
+      d.angle = turnToward(d.angle, targetAng, Math.min(1, dt * (5 + skill * 7)));
+      const speed = dspeed;
       if(dist > 20){
         d.x += Math.cos(d.angle + Math.PI/2) * speed * dt;
         d.y += Math.sin(d.angle + Math.PI/2) * speed * dt;
@@ -1256,10 +1273,12 @@ function updateTestPhysics(state, dt, W, H){
       }
     }
 
-    // Pitch bounce (long sides: throw-in, ball stays in play)
+    // Pitch bounce (long sides: throw-in, ball stays in play). Extra
+    // damping so balls settle instead of rolling along the lines.
     if(b.y < 28 || b.y > H - 28){
       if(Math.hypot(b.vx, b.vy) > 150) setHudResult('THROW-IN', '#94a3b8');
-      b.vy = -b.vy * 0.75;
+      b.vy = -b.vy * 0.55;
+      b.vx *= 0.9;
       b.y = Math.max(29, Math.min(H - 29, b.y));
     }
 
