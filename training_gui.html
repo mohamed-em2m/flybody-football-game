@@ -364,7 +364,9 @@
     .rp-miss{color:#f59e0b;font-weight:700}
     </style>
     <div class="pbk-sect" id="replaySection" style="display:none">
-      <div class="pbk-lbl">&#9917; Epoch Match Replays &mdash; watch the policy improve</div>
+      <div class="pbk-lbl">&#9917; Epoch Match Replays &mdash; watch the policy improve
+        <label class="btn bsec" style="padding:4px 12px;font-size:.7rem;cursor:pointer" title="Load real rollout videos (mp4/webm) rendered by scripts/rollout_football_video.py">&#11014; Load real video<input id="realVidInput" type="file" accept="video/*,.mp4,.webm" multiple hidden onchange="uploadRealVideos(this)"></label>
+      </div>
       <div class="rp-grid" id="replayGallery"></div>
     </div>
     <canvas id="repCanvas" width="640" height="400" style="position:fixed;left:-9999px;top:-9999px;pointer-events:none;"></canvas>
@@ -509,7 +511,7 @@ ev.run(block=False)
 while True: lrn.run(block=True)`;}
 function upd(){
   document.getElementById('sPrv').textContent=gen();
-  document.getElementById('cPrv').textContent='# Activate conda env\nconda activate flybody\n\n# Run the generated script\npython train_'+cur+'_custom.py\n\n# Test mode (1 actor, verbose)\npython flybody/train_dmpo_ray.py --test\n\n# Submit to existing Ray cluster\nray job submit --address auto -- python train_'+cur+'_custom.py\n\n# Monitor at http://localhost:8265\n\n# Record a video of a trained ARS policy (CPU, no Ray needed)\npython rollout_football_video.py --policy-npz runs/ars1/best.npz --out trained.mp4';
+  document.getElementById('cPrv').textContent='# Activate conda env\nconda activate flybody\n\n# Run the generated script\npython train_'+cur+'_custom.py\n\n# Test mode (1 actor, verbose)\npython flybody/train_dmpo_ray.py --test\n\n# Submit to existing Ray cluster\nray job submit --address auto -- python train_'+cur+'_custom.py\n\n# Monitor at http://localhost:8265\n\n# Record a video of a trained ARS policy (CPU, no Ray needed)\npython scripts/rollout_football_video.py --policy-npz runs/ars1/best.npz --out trained.mp4';
   document.getElementById('ePrv').textContent='# Required env vars\nexport MUJOCO_GL=egl\nexport MUJOCO_EGL_DEVICE_ID=0\nexport TF_FORCE_GPU_ALLOW_GROWTH=true\n\n# cuDNN (update path as needed)\nCUDNN_PATH=$(dirname $(python -c \"import nvidia.cudnn;print(nvidia.cudnn.__file__)\"))\nexport LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib/:$CUDNN_PATH/lib\n\n# Install with Ray support\npip install -e .[ray]';
   document.getElementById('stA').textContent=g('na')||32;
   document.getElementById('stB').textContent=g('bs')||256;
@@ -774,7 +776,7 @@ function recordMatchClip(label,skill,seed){
   try{mr.start(250);}catch(e){repBusy=false;return;}
   frame();
 }
-function addReplayCard(url,ext,label,sub){
+function addReplayCard(url,ext,label,sub,dlName){
   var gal=document.getElementById('replayGallery');
   if(!gal)return;
   document.getElementById('replaySection').style.display='flex';
@@ -784,9 +786,20 @@ function addReplayCard(url,ext,label,sub){
   var s=document.createElement('div');s.className='rp-sub';
   var sp=document.createElement('span');sp.textContent=sub;s.appendChild(sp);
   var a=document.createElement('a');a.className='rp-dl';a.href=url;
-  a.download='flybody_'+label.replace(/\s+/g,'_')+'.'+ext;a.textContent='Download';
+  a.download=dlName||('flybody_'+label.replace(/\s+/g,'_')+'.'+ext);a.textContent='Download';
   s.appendChild(a);d.appendChild(s);
   gal.prepend(d);
+}
+function uploadRealVideos(input){
+  if(!input||!input.files||!input.files.length)return;
+  Array.prototype.forEach.call(input.files,function(f){
+    var ext=(f.name.split('.').pop()||'mp4').toLowerCase();
+    var url=URL.createObjectURL(f);
+    var sz=(f.size/1048576).toFixed(1)+' MB';
+    addReplayCard(url,ext,'Real: '+f.name,'uploaded rollout · '+sz,f.name);
+  });
+  addL(input.files.length+' real video(s) loaded into replays.','ok');
+  input.value='';
 }
 
 function stopRecording(){
