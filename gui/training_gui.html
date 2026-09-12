@@ -1169,28 +1169,38 @@ function updateTestPhysics(state, dt, W, H){
       }
     });
 
-    // --- Sweeper-keeper: patrols the box, steps out to meet danger,
-    // and clears loose balls upfield instead of watching them ---
+    // --- Sweeper-keeper v2: owns the box. Rushes out on a fast, wide
+    // patrol while the ball is far, tracks + cuts the angle in danger,
+    // faces the ball, and sprints at loose balls to clear them. ---
     gk.wing += dt * 30;
     gk.leg += dt * 8;
     const lineX = state.gx - 18;
     // 0 when the ball is far from goal, 1 when it reaches the line.
     const danger = Math.max(0, Math.min(1, (b.x - (state.gx - 200)) / 160));
     const roam = 1 - danger;
-    // Advance out to cut the angle, retreat when the ball is cleared.
+    // Patrol on a ~3s cycle (visible inside a 6s clip): out toward the
+    // penalty spot while the ball is far, back to the line in danger.
     const outX = lineX - danger * (25 + skill * 20)
-      + roam * (Math.sin(state.time * 0.8 + state.seed) * 16 - 10);
+      + roam * (Math.sin(state.time * 2.0 + state.seed) * 30 - 22);
     gk.x += (outX - gk.x) * Math.min(1, dt * (2 + skill * 3));
     // Track the ball, shading toward the near post as danger grows;
-    // drift across the box while the ball is far away.
+    // sweep the full width of the box while the ball is far away.
     const nearPostY = H * 0.5 + (b.y >= H * 0.5 ? 1 : -1) * state.gh * 0.38;
     let goalieTargetY = b.y + (nearPostY - b.y) * 0.3 * danger
-      + roam * Math.sin(state.time * 0.55 + state.seed * 1.3) * state.gh * 0.22;
+      + roam * Math.sin(state.time * 1.8 + state.seed * 1.3) * state.gh * 0.40;
     goalieTargetY = Math.max(H*0.5 - state.gh*0.45, Math.min(H*0.5 + state.gh*0.45, goalieTargetY));
     gk.y += (goalieTargetY - gk.y) * Math.min(1, dt * (3 + (1 - skill) * 3 + danger * 1.5));
-    // Clear loose balls in reach: to the most open mate upfield, or long.
+    // Face the ball so patrols and advances read as intent, not drift.
+    gk.angle = Math.atan2(b.y - gk.y, b.x - gk.x) - Math.PI / 2;
+    // Sprint at loose balls in the box; the clearance below fires on arrival.
     const gkBallSpd = Math.hypot(b.vx, b.vy);
     const gkDist = Math.hypot(b.x - gk.x, b.y - gk.y);
+    if(gkDist <= 60 && gkDist > 26 && state.kickCd <= 0 && (!state.kicked || gkBallSpd < 90)){
+      const dashA = Math.atan2(b.y - gk.y, b.x - gk.x);
+      gk.x += Math.cos(dashA) * 260 * dt;
+      gk.y += Math.sin(dashA) * 260 * dt;
+    }
+    // Clear loose balls in reach: to the most open mate upfield, or long.
     if(gkDist <= 26 && state.kickCd <= 0 && (!state.kicked || gkBallSpd < 90)){
       state.kicked = true;
       state.kickCd = 0.6;
@@ -1559,7 +1569,7 @@ function renderTestEnvironment(ctx, W, H, state){
 
     // East team flies (blue, keeper first) with jersey numbers
     state.goalies.forEach(function(g){
-      drawFruitFlyTopDown(ctx, g.x, g.y, -Math.PI/2, g.wing, '#0284c7', 0.9, g.leg, g.num, '#7dd3fc');
+      drawFruitFlyTopDown(ctx, g.x, g.y, (typeof g.angle === 'number' ? g.angle : -Math.PI/2), g.wing, '#0284c7', 0.9, g.leg, g.num, '#7dd3fc');
     });
 
     // West team flies (orange) with jersey numbers
