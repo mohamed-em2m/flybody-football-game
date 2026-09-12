@@ -881,8 +881,6 @@ function resetFootballKickoff(state, W, H){
         angle: Math.PI / 2, wing: R() * 6, leg: R() * 6, num: i + 1, keeper: false});
     }
   }
-  state.attacker = state.attackers[0];
-  state.goalie = state.goalies[0];
   state.trail = [];
   state.kicked = false;
   state.lastPass = null;
@@ -1171,20 +1169,52 @@ function updateTestPhysics(state, dt, W, H){
       }
     });
 
-    // --- Keeper: guards the posts, steps out to meet danger ---
+    // --- Sweeper-keeper: patrols the box, steps out to meet danger,
+    // and clears loose balls upfield instead of watching them ---
     gk.wing += dt * 30;
     gk.leg += dt * 8;
     const lineX = state.gx - 18;
     // 0 when the ball is far from goal, 1 when it reaches the line.
     const danger = Math.max(0, Math.min(1, (b.x - (state.gx - 200)) / 160));
+    const roam = 1 - danger;
     // Advance out to cut the angle, retreat when the ball is cleared.
-    const outX = lineX - danger * (25 + skill * 20);
+    const outX = lineX - danger * (25 + skill * 20)
+      + roam * (Math.sin(state.time * 0.8 + state.seed) * 16 - 10);
     gk.x += (outX - gk.x) * Math.min(1, dt * (2 + skill * 3));
-    // Track the ball, shading toward the near post as danger grows.
+    // Track the ball, shading toward the near post as danger grows;
+    // drift across the box while the ball is far away.
     const nearPostY = H * 0.5 + (b.y >= H * 0.5 ? 1 : -1) * state.gh * 0.38;
-    let goalieTargetY = b.y + (nearPostY - b.y) * 0.3 * danger;
+    let goalieTargetY = b.y + (nearPostY - b.y) * 0.3 * danger
+      + roam * Math.sin(state.time * 0.55 + state.seed * 1.3) * state.gh * 0.22;
     goalieTargetY = Math.max(H*0.5 - state.gh*0.45, Math.min(H*0.5 + state.gh*0.45, goalieTargetY));
     gk.y += (goalieTargetY - gk.y) * Math.min(1, dt * (3 + (1 - skill) * 3 + danger * 1.5));
+    // Clear loose balls in reach: to the most open mate upfield, or long.
+    const gkBallSpd = Math.hypot(b.vx, b.vy);
+    const gkDist = Math.hypot(b.x - gk.x, b.y - gk.y);
+    if(gkDist <= 26 && state.kickCd <= 0 && (!state.kicked || gkBallSpd < 90)){
+      state.kicked = true;
+      state.kickCd = 0.6;
+      state.poss = 'east';
+      let mate = null, best = -1e9;
+      state.goalies.forEach(function(m){
+        if(m === gk) return;
+        let md = 1e9;
+        state.attackers.forEach(function(a){
+          const dd = Math.hypot(a.x - m.x, a.y - m.y);
+          if(dd < md) md = dd;
+        });
+        const score = md + (gk.x - m.x) * 0.5;
+        if(score > best){ best = score; mate = m; }
+      });
+      let tx, ty;
+      if(mate && R() < 0.7){ tx = mate.x; ty = mate.y; }
+      else { tx = W * 0.35; ty = H * 0.5 + (R() - 0.5) * 120; }
+      const clrAng = Math.atan2(ty - b.y, tx - b.x);
+      const clrSpd = 220 + skill * 80;
+      b.vx = Math.cos(clrAng) * clrSpd;
+      b.vy = Math.sin(clrAng) * clrSpd;
+      setHudResult('CLEARANCE E1', '#38bdf8');
+    }
 
     // --- East defenders: chase the ball, counter toward the west goal ---
     state.goalies.forEach(function(d, di){
