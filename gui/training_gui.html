@@ -866,20 +866,20 @@ function resetFootballKickoff(state, W, H){
   state.gh = H * 0.38;
   state.ball = {x: W * 0.46 + (R() - 0.5) * 40, y: H * 0.5 + (R() - 0.5) * 40, vx: 0, vy: 0, r: 8.5};
   state.attackers = [];
+  // West line: just west of the center spot, spread vertically, facing east.
   for(let i = 0; i < nTeam; i++){
-    state.attackers.push({x: W * 0.16 - i * 36 + (R() - 0.5) * 24,
-      y: H * 0.5 + (i - (nTeam - 1) / 2) * 70 + (R() - 0.5) * 30,
+    state.attackers.push({x: W * 0.46 - 55 + (R() - 0.5) * 24,
+      y: H * 0.5 + (i - (nTeam - 1) / 2) * 70 + (R() - 0.5) * 24,
       angle: -Math.PI / 2, wing: R() * 6, leg: R() * 6, num: i + 1});
   }
   state.goalies = [];
+  // East line: just east of the center spot, facing west. Keeper (#1)
+  // takes the middle of the line, then falls back to goal once play starts.
   for(let i = 0; i < nTeam; i++){
-    if(i === 0){
-      state.goalies.push({x: state.gx - 18, y: H * 0.5, vy: 0, wing: 0, leg: 0, num: 1, keeper: true, angle: -Math.PI / 2});
-    } else {
-      state.goalies.push({x: W * 0.70 + (i - 1) * 30 + (R() - 0.5) * 24,
-        y: H * 0.5 + (i - nTeam / 2) * 70 + (R() - 0.5) * 30,
-        angle: Math.PI / 2, wing: R() * 6, leg: R() * 6, num: i + 1, keeper: false});
-    }
+    state.goalies.push({x: W * 0.46 + 55 + (R() - 0.5) * 24,
+      y: H * 0.5 + (i - (nTeam - 1) / 2) * 70 + (R() - 0.5) * 24,
+      angle: Math.PI / 2, wing: R() * 6, leg: R() * 6,
+      num: i + 1, keeper: i === 0});
   }
   state.trail = [];
   state.kicked = false;
