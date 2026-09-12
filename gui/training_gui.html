@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FlyBody RL Training Dashboard</title>
+  <meta name="description" content="GUI for configuring and launching FlyBody RL training runs with DMPO agent on Ray." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-base:#0a0c14;--bg-panel:#10131f;--bg-card:#161928;--bg-input:#1e2338;
+      --border:#2a3050;--accent-blue:#5b7fff;--accent-purple:#a855f7;
+      --accent-cyan:#22d3ee;--accent-green:#22c55e;--accent-amber:#f59e0b;--accent-red:#ef4444;
+      --text-primary:#e8ecff;--text-secondary:#8894b8;--text-muted:#4e5a7a;
+      --glow-blue:rgba(91,127,255,.25);--glow-purple:rgba(168,85,247,.25);
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Inter',sans-serif;background:var(--bg-base);color:var(--text-primary);min-height:100vh;overflow-x:hidden}
+    body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 80% 60% at 15% 10%,rgba(91,127,255,.08) 0%,transparent 65%),radial-gradient(ellipse 60% 50% at 85% 80%,rgba(168,85,247,.07) 0%,transparent 55%);pointer-events:none;z-index:0}
+    .app{position:relative;z-index:1;display:flex;flex-direction:column;min-height:100vh}
+    header{display:flex;align-items:center;gap:18px;padding:15px 30px;background:linear-gradient(90deg,rgba(91,127,255,.12),rgba(168,85,247,.08));border-bottom:1px solid var(--border);backdrop-filter:blur(10px);position:sticky;top:0;z-index:100}
+    .logo-icon{width:42px;height:42px;background:linear-gradient(135deg,var(--accent-blue),var(--accent-purple));border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:21px;box-shadow:0 0 18px var(--glow-blue);flex-shrink:0}
+    .logo-text h1{font-size:1.2rem;font-weight:700;letter-spacing:-.02em}
+    .logo-text p{font-size:.74rem;color:var(--text-secondary);margin-top:1px}
+    .hstatus{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:.78rem;color:var(--text-secondary)}
+    .sdot{width:8px;height:8px;border-radius:50%;background:var(--accent-amber);box-shadow:0 0 8px var(--accent-amber);animation:pulse 2s infinite}
+    .sdot.active{background:var(--accent-green);box-shadow:0 0 8px var(--accent-green)}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+    .hero{position:relative;overflow:hidden;background:var(--bg-panel);border-bottom:1px solid var(--border)}
+    .hero-img{width:100%;height:175px;object-fit:cover;opacity:.5;filter:saturate(1.4) contrast(1.1);display:block}
+    .hero-ov{position:absolute;inset:0;background:linear-gradient(to right,rgba(10,12,20,.92) 0%,rgba(10,12,20,.55) 55%,rgba(10,12,20,.18) 100%);display:flex;align-items:center;padding:0 38px;gap:18px}
+    .hbadge{background:linear-gradient(135deg,var(--accent-blue),var(--accent-purple));padding:5px 12px;border-radius:18px;font-size:.68rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase}
+    .htext h2{font-size:1.45rem;font-weight:700;line-height:1.25}
+    .htext p{font-size:.83rem;color:var(--text-secondary);margin-top:4px}
+    .mg{display:grid;grid-template-columns:1fr 1fr 400px;gap:0;flex:1}
+    .sec{padding:20px 22px;border-right:1px solid var(--border);overflow-y:auto;height:calc(100vh - 62px - 175px)}
+    .sec:last-child{border-right:none}
+    .stit{font-size:.68rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-secondary);margin-bottom:14px;display:flex;align-items:center;gap:7px}
+    .stit::after{content:'';flex:1;height:1px;background:linear-gradient(to right,var(--border),transparent)}
+    .card{background:var(--bg-card);border:1px solid var(--border);border-radius:11px;padding:15px;margin-bottom:13px;transition:border-color .2s}
+    .card:hover{border-color:rgba(91,127,255,.35)}
+    .card-title{font-size:.81rem;font-weight:600;margin-bottom:12px}
+    .tgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+    .tbtn{background:var(--bg-input);border:1px solid var(--border);border-radius:9px;padding:10px 8px;cursor:pointer;text-align:center;transition:all .2s;color:var(--text-secondary);font-size:.76rem;font-family:inherit}
+    .tbtn .ti{font-size:1.35rem;margin-bottom:3px;display:block}
+    .tbtn:hover{border-color:var(--accent-blue);color:var(--text-primary);transform:translateY(-2px)}
+    .tbtn.active{border-color:var(--accent-blue);background:linear-gradient(135deg,rgba(91,127,255,.14),rgba(168,85,247,.08));color:var(--text-primary);box-shadow:0 0 14px var(--glow-blue)}
+    .fr{margin-bottom:12px}
+    .fl{display:flex;justify-content:space-between;align-items:center;font-size:.74rem;color:var(--text-secondary);margin-bottom:5px}
+    .vb{background:rgba(91,127,255,.18);color:var(--accent-blue);border-radius:4px;padding:2px 6px;font-size:.69rem;font-family:'JetBrains Mono',monospace;font-weight:600}
+    input[type=range]{width:100%;-webkit-appearance:none;height:4px;border-radius:4px;background:var(--bg-input);outline:none;cursor:pointer}
+    input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;background:linear-gradient(135deg,var(--accent-blue),var(--accent-purple));box-shadow:0 0 7px var(--glow-blue);cursor:pointer;border:none}
+    input[type=number],input[type=text],select{width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:7px;color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:.78rem;padding:7px 10px;outline:none;transition:border-color .2s,box-shadow .2s}
+    input[type=number]:focus,input[type=text]:focus,select:focus{border-color:var(--accent-blue);box-shadow:0 0 0 3px var(--glow-blue)}
+    select{cursor:pointer} select option{background:var(--bg-panel)}
+    .trow{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
+    .tlbl{font-size:.78rem;color:var(--text-secondary)}
+    .tog{position:relative;width:37px;height:20px;flex-shrink:0}
+    .tog input{opacity:0;width:0;height:0}
+    .slt{position:absolute;inset:0;background:var(--bg-input);border:1px solid var(--border);border-radius:20px;cursor:pointer;transition:all .25s}
+    .slt::before{content:'';position:absolute;width:12px;height:12px;border-radius:50%;background:var(--text-muted);top:3px;left:3px;transition:all .25s}
+    .tog input:checked+.slt{background:linear-gradient(135deg,var(--accent-blue),var(--accent-purple));border-color:var(--accent-blue)}
+    .tog input:checked+.slt::before{transform:translateX(17px);background:#fff}
+    .lgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px}
+    .p2{display:grid;grid-template-columns:1fr 1fr;gap:9px 13px}
+    .cpanel{background:var(--bg-panel);display:flex;flex-direction:column;height:calc(100vh - 62px - 175px);position:sticky;top:calc(62px + 175px)}
+    .chdr{padding:15px 17px 11px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+    .ctit{font-size:.7rem;font-weight:600;color:var(--text-secondary);letter-spacing:.07em;text-transform:uppercase}
+    .cbdy{flex:1;overflow-y:auto;padding:13px 17px}
+    .sblk{background:#080b14;border:1px solid var(--border);border-radius:9px;padding:11px;font-family:'JetBrains Mono',monospace;font-size:.71rem;color:#a6c9ff;white-space:pre-wrap;word-break:break-all;line-height:1.7;margin-bottom:12px;max-height:320px;overflow-y:auto}
+    .bgrp{display:flex;gap:7px;flex-wrap:wrap;padding:11px 17px;border-top:1px solid var(--border)}
+    .btn{display:flex;align-items:center;gap:5px;padding:9px 15px;border-radius:8px;border:none;font-family:inherit;font-size:.78rem;font-weight:600;cursor:pointer;transition:all .2s;white-space:nowrap}
+    .bpri{background:linear-gradient(135deg,var(--accent-blue),var(--accent-purple));color:#fff;box-shadow:0 4px 14px var(--glow-blue);flex:1}
+    .bpri:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(91,127,255,.4)}
+    .bsec{background:var(--bg-input);color:var(--text-secondary);border:1px solid var(--border)}
+    .bsec:hover{border-color:var(--accent-blue);color:var(--text-primary)}
+    .bdng{background:rgba(239,68,68,.1);color:var(--accent-red);border:1px solid rgba(239,68,68,.3)}
+    .sbar{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin-bottom:13px}
+    .schip{background:var(--bg-input);border:1px solid var(--border);border-radius:8px;padding:8px 9px;text-align:center}
+    .schip .sv{font-family:'JetBrains Mono',monospace;font-size:.92rem;font-weight:700;color:var(--accent-blue)}
+    .schip .sk{font-size:.63rem;color:var(--text-muted);margin-top:1px}
+    .loga{background:#06080f;border:1px solid var(--border);border-radius:8px;padding:8px 11px;font-family:'JetBrains Mono',monospace;font-size:.68rem;color:var(--text-secondary);height:105px;overflow-y:auto;line-height:1.8}
+    .ll{display:block}.ts{color:var(--text-muted)}.ok{color:var(--accent-green)}.wn{color:var(--accent-amber)}.er{color:var(--accent-red)}.if{color:var(--accent-cyan)}
+    .tabs{display:flex;gap:3px;margin-bottom:12px}
+    .tab{padding:5px 11px;border-radius:6px;font-size:.73rem;font-weight:500;cursor:pointer;border:1px solid transparent;transition:all .2s;color:var(--text-secondary)}
+    .tab:hover{color:var(--text-primary)}
+    .tab.active{background:rgba(91,127,255,.14);border-color:var(--accent-blue);color:var(--accent-blue)}
+    .tag{display:inline-block;padding:3px 7px;border-radius:5px;font-size:.66rem;font-weight:600}
+    .tblu{background:rgba(91,127,255,.18);color:var(--accent-blue)}
+    .tgrn{background:rgba(34,197,94,.14);color:var(--accent-green)}
+    .tamb{background:rgba(245,158,11,.14);color:var(--accent-amber)}
+    .tpur{background:rgba(168,85,247,.18);color:var(--accent-purple)}
+    .tip{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;border-radius:50%;background:var(--bg-input);border:1px solid var(--border);font-size:.57rem;color:var(--text-muted);cursor:help;position:relative}
+    .tip:hover::after{content:attr(data-tip);position:absolute;bottom:120%;left:50%;transform:translateX(-50%);background:#1e2338;color:var(--text-primary);border:1px solid var(--border);border-radius:6px;padding:5px 9px;font-size:.67rem;line-height:1.4;white-space:nowrap;z-index:200;box-shadow:0 4px 16px rgba(0,0,0,.5);font-family:'Inter',sans-serif}
+    .pwrap{background:var(--bg-input);border-radius:4px;height:5px;overflow:hidden}
+    .pbar{height:100%;border-radius:4px;background:linear-gradient(90deg,var(--accent-blue),var(--accent-purple));width:0%;transition:width .5s}
+    ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+    @media(max-width:1080px){.mg{grid-template-columns:1fr 1fr}.cpanel{position:static;height:auto}}
+    @media(max-width:700px){.mg{grid-template-columns:1fr}.tgrid{grid-template-columns:repeat(3,1fr)}.sbar{grid-template-columns:repeat(2,1fr)}}
+    /* ===== Main Tab Navigation ===== */
+    .main-tabbar{display:flex;align-items:center;gap:4px;padding:8px 22px;background:var(--bg-panel);border-bottom:2px solid var(--border);flex-shrink:0;position:sticky;top:62px;z-index:90;backdrop-filter:blur(10px)}
+    .mtab{background:transparent;border:1px solid transparent;border-radius:10px;padding:7px 18px;cursor:pointer;font-family:inherit;font-size:.8rem;font-weight:600;color:var(--text-secondary);display:flex;align-items:center;gap:7px;transition:all .2s;white-space:nowrap;letter-spacing:.01em}
+    .mtab:hover{color:var(--text-primary);background:var(--bg-input)}
+    .mtab.active{background:linear-gradient(135deg,rgba(91,127,255,.18),rgba(168,85,247,.1));border-color:var(--accent-blue);color:var(--text-primary);box-shadow:0 0 14px rgba(91,127,255,.2)}
+    .mtab .mbadge{background:rgba(91,127,255,.2);color:var(--accent-blue);border-radius:9px;padding:1px 7px;font-size:.64rem;font-weight:700}
+    .mtab.active .mbadge{background:var(--accent-blue);color:#fff}
+    .mtab-sep{flex:1}
+    .main-pane{display:none;flex-direction:column;flex:1;overflow:hidden;min-height:0}
+    .main-pane.active{display:flex}
+    /* ===== Results Tab Layout ===== */
+    .res-topbar{display:flex;align-items:center;gap:8px;padding:10px 22px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg-panel);flex-wrap:wrap}
+    .res-topbar h3{font-size:.85rem;font-weight:700;flex:1;min-width:120px;display:flex;align-items:center;gap:7px;color:var(--text-primary)}
+    .res-body{display:grid;grid-template-columns:1fr 320px;flex:1;overflow:hidden;min-height:0}
+    .res-charts{padding:14px 10px 14px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:10px}
+    .res-side{padding:14px 20px 14px 10px;border-left:1px solid var(--border);display:flex;flex-direction:column;gap:9px;overflow-y:auto}
+    .res-side-lbl{font-size:.67rem;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.07em}
+    .loga-r{background:#06080f;border:1px solid var(--border);border-radius:8px;padding:8px 11px;font-family:'JetBrains Mono',monospace;font-size:.68rem;color:var(--text-secondary);flex:1;overflow-y:auto;line-height:1.8;min-height:80px}
+    /* ===== Results Modal styles (now tab) ===== */
+    .rec-ind{display:none;align-items:center;gap:5px;font-size:.68rem;color:#ef4444;font-weight:700;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:4px 9px;white-space:nowrap}
+    .res-hdr{display:flex;align-items:center;gap:9px;flex-shrink:0;flex-wrap:wrap;border-bottom:1px solid var(--border);padding-bottom:12px}
+    .res-hdr h2{font-size:.95rem;font-weight:700;flex:1;min-width:140px;display:flex;align-items:center;gap:8px}
+    .rec-ind{display:none;align-items:center;gap:5px;font-size:.68rem;color:#ef4444;font-weight:700;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);border-radius:6px;padding:4px 9px;white-space:nowrap}
+    .rec-pulse{width:7px;height:7px;border-radius:50%;background:#ef4444;animation:pulse 1s infinite;flex-shrink:0}
+    .done-badge{display:none;align-items:center;gap:5px;background:rgba(34,197,94,.13);border:1px solid var(--accent-green);border-radius:8px;padding:5px 11px;font-size:.72rem;color:var(--accent-green);font-weight:600;white-space:nowrap}
+    .charts-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .chart-card{background:var(--bg-card);border:1px solid var(--border);border-radius:11px;padding:11px 12px;display:flex;flex-direction:column;gap:6px;transition:border-color .2s}
+    .chart-card:hover{border-color:rgba(91,127,255,.4)}
+    .chart-card canvas{border-radius:6px;display:block;background:#080b14;width:100%;height:150px}
+    .chart-lbl{font-size:.7rem;font-weight:600;color:var(--text-secondary);letter-spacing:.02em}
+    .lst-bar{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;flex-shrink:0}
+    .lst-chip{background:var(--bg-card);border:1px solid var(--border);border-radius:9px;padding:8px 6px;text-align:center}
+    .lst-val{font-family:'JetBrains Mono',monospace;font-size:.95rem;font-weight:700;color:var(--accent-blue);letter-spacing:-.02em}
+    .lst-key{font-size:.59rem;color:var(--text-muted);margin-top:2px}
+    .pbk-sect{background:var(--bg-card);border:1px solid var(--accent-green);border-radius:11px;padding:13px;display:none;flex-direction:column;gap:9px;margin:0 20px 12px}
+    .pbk-sect video{width:100%;border-radius:8px;max-height:220px;outline:none;background:#000}
+    .pbk-lbl{font-size:.72rem;font-weight:600;color:var(--accent-green)}
+    @media(max-width:900px){.res-body{grid-template-columns:1fr}.res-side{border-left:none;border-top:1px solid var(--border)}}
+    @media(max-width:700px){.charts-grid{grid-template-columns:1fr}.lst-bar{grid-template-columns:repeat(3,1fr)}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo-icon">&#129432;</div>
+    <div class="logo-text"><h1>FlyBody RL Trainer</h1><p>Distributed DMPO &middot; MuJoCo &middot; Ray &middot; TuragaLab/flybody</p></div>
+    <div class="hstatus"><div class="sdot" id="sDot"></div><span id="sTxt">Ready</span></div>
+  </header>
+  <div class="hero">
+    <img src="fly-white.png" alt="Fruit fly" class="hero-img"
+         onerror="this.style.cssText='height:175px;display:block;width:100%;background:linear-gradient(135deg,#0a1230,#180d38)'" />
+    <div class="hero-ov">
+      <div>
+        <div class="hbadge">&#129516; Drosophila melanogaster</div>
+        <div class="htext" style="margin-top:9px"><h2>Configure &amp; Launch<br/>RL Training Runs</h2><p>Distributed DMPO agent &middot; Ray parallelism &middot; MuJoCo physics</p></div>
+      </div>
+    </div>
+  </div>
+  <!-- ===== Main Tab Bar ===== -->
+  <div class="main-tabbar">
+    <button class="mtab active" data-tab="config" onclick="switchMainTab('config')">&#9881;&#65039; Configure <span class="mbadge" id="cfgBadge">Ready</span></button>
+    <button class="mtab" data-tab="results" onclick="switchMainTab('results')">&#128202; Results <span class="mbadge" id="resBadge">—</span></button>
+    <div class="mtab-sep"></div>
+    <div class="rec-ind" id="recIndicator" style="margin-right:4px"><span class="rec-pulse"></span> REC</div>
+    <div class="done-badge" id="trainingDoneMsg">&#10003; Training Complete</div>
+  </div>
+  <!-- ===== Configure Pane ===== -->
+  <div class="main-pane active" id="pane-config">
+  <div class="mg">
+    <!-- COL 1: Environment -->
+    <div class="sec">
+      <div class="stit">&#127919; Task Environment</div>
+      <div class="card">
+        <div class="card-title">Select Fly Task</div>
+        <div class="tgrid" id="tGrid">
+          <button class="tbtn" data-task="walk_on_ball" onclick="selT(this)"><span class="ti">&#9917;</span>Walk on Ball</button>
+          <button class="tbtn active" data-task="walk_imitation" onclick="selT(this)"><span class="ti">&#128694;</span>Walk Imitation</button>
+          <button class="tbtn" data-task="flight_imitation" onclick="selT(this)"><span class="ti">&#9992;&#65039;</span>Flight Imitation</button>
+          <button class="tbtn" data-task="vision_guided_flight" onclick="selT(this)"><span class="ti">&#128065;&#65039;</span>Vision Flight</button>
+          <button class="tbtn" data-task="football_vs" onclick="selT(this)"><span class="ti">&#127944;</span>Football Vs</button>
+          <button class="tbtn" data-task="template_task" onclick="selT(this)"><span class="ti">&#129514;</span>Template Task</button>
+        </div>
+        <div id="tDesc" style="margin-top:10px;font-size:.74rem;color:var(--text-secondary);line-height:1.5"></div>
+      </div>
+      <div class="card"><div class="card-title">Task Parameters</div><div id="tPrm"></div></div>
+      <div class="card">
+        <div class="card-title">Environment Options</div>
+        <div class="trow"><span class="tlbl">Force Actuators <span class="tip" data-tip="Use torque/force instead of position actuators">?</span></span><label class="tog"><input type="checkbox" id="fAct" onchange="upd()"><span class="slt"></span></label></div>
+        <div class="trow"><span class="tlbl">Disable Wings <span class="tip" data-tip="Retract/disable wing DoFs and sensors">?</span></span><label class="tog"><input type="checkbox" id="dWin" checked onchange="upd()"><span class="slt"></span></label></div>
+        <div class="trow"><span class="tlbl">Single Precision Wrapper</span><label class="tog"><input type="checkbox" id="sPrc" checked onchange="upd()"><span class="slt"></span></label></div>
+        <div class="trow"><span class="tlbl">Canonical Spec Wrapper (clip)</span><label class="tog"><input type="checkbox" id="cSpc" checked onchange="upd()"><span class="slt"></span></label></div>
+        <div class="fr" style="margin-top:8px"><div class="fl">Joint Filter <span class="tip" data-tip="Low-pass time constant. 0=disabled.">?</span><span class="vb" id="jfL">0.010</span></div><input type="range" id="jf" min="0" max="0.1" step=".001" value=".01" oninput="sr(this,'jfL',3);upd()"></div>
+      </div>
+      <div class="stit">&#9881;&#65039; DMPO Agent Config</div>
+      <div class="card">
+        <div class="card-title">Actor / Replay Settings</div>
+        <div class="fr"><div class="fl">Num Actors <span class="tip" data-tip="Parallel actor processes">?</span><span class="vb" id="naL">32</span></div><input type="range" id="na" min="1" max="128" step="1" value="32" oninput="sr(this,'naL',0);upd()"></div>
+        <div class="fr"><div class="fl">Batch Size<span class="vb" id="bsL">256</span></div><input type="range" id="bs" min="64" max="2048" step="64" value="256" oninput="sr(this,'bsL',0);upd()"></div>
+        <div class="fr"><div class="fl">Prefetch Size<span class="vb" id="pfL">4</span></div><input type="range" id="pf" min="1" max="16" step="1" value="4" oninput="sr(this,'pfL',0);upd()"></div>
+        <div class="fr"><div class="fl">Learner Steps/Call<span class="vb" id="nlsL">100</span></div><input type="range" id="nls" min="10" max="500" step="10" value="100" oninput="sr(this,'nlsL',0);upd()"></div>
+        <div class="fr" style="margin-top:4px"><div class="fl">Max Sim Steps <span class="tip" data-tip="GUI simulation steps before auto-stop. 0 = infinite.">?</span><span class="vb" id="mssL">200</span></div><input type="range" id="mss" min="0" max="1000" step="50" value="200" oninput="sr(this,'mssL',0);upd()"></div>
+        <div class="trow"><span class="tlbl">Infinite Run &#8734; <span class="tip" data-tip="Simulate training indefinitely with no auto-stop">?</span></span><label class="tog"><input type="checkbox" id="infiniteRun" onchange="upd()"><span class="slt"></span></label></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Replay Buffer</div>
+        <div class="fr"><div class="fl">Min Replay Size <span class="tip" data-tip="Min transitions before learning starts">?</span></div><input type="number" id="mrs" value="10000" step="1000" min="100" onchange="upd()"></div>
+        <div class="fr"><div class="fl">Max Replay Size</div><input type="number" id="mxrs" value="4000000" step="100000" min="10000" onchange="upd()"></div>
+        <div class="fr"><div class="fl">Samples/Insert <span class="tip" data-tip="Rate-limiter ratio">?</span><span class="vb" id="spiL">15.0</span></div><input type="range" id="spi" min="1" max="64" step="1" value="15" oninput="sr(this,'spiL',1);upd()"></div>
+        <div class="fr"><div class="fl">N-Step<span class="vb" id="nsL">5</span></div><input type="range" id="nst" min="1" max="20" step="1" value="5" oninput="sr(this,'nsL',0);upd()"></div>
+        <div class="fr"><div class="fl">Discount (&gamma;) <span class="tip" data-tip="Future reward discount factor">?</span><span class="vb" id="dL">0.990</span></div><input type="range" id="disc" min="0.9" max="0.9999" step=".0001" value=".99" oninput="sr(this,'dL',3);upd()"></div>
+        <div class="fr"><div class="fl">Num Samples (MPO)<span class="vb" id="nsmL">20</span></div><input type="range" id="nsm" min="5" max="100" step="5" value="20" oninput="sr(this,'nsmL',0);upd()"></div>
+      </div>
+    </div>
+    <!-- COL 2: Network & Optimizer -->
+    <div class="sec">
+      <div class="stit">&#129504; Network Architecture</div>
+      <div class="card">
+        <div class="card-title">Policy Network (MLP)</div>
+        <div class="fr"><div class="fl">Hidden Layer Sizes<span style="font-size:.65rem;color:var(--text-muted)">3 layers</span></div><div class="lgrid"><input type="number" id="pL1" value="256" step="64" min="32" onchange="upd()" placeholder="L1"><input type="number" id="pL2" value="256" step="64" min="32" onchange="upd()" placeholder="L2"><input type="number" id="pL3" value="256" step="64" min="32" onchange="upd()" placeholder="L3"></div></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Critic Network (MLP)</div>
+        <div class="fr"><div class="fl">Hidden Layer Sizes<span style="font-size:.65rem;color:var(--text-muted)">3 layers</span></div><div class="lgrid"><input type="number" id="cL1" value="512" step="64" min="32" onchange="upd()" placeholder="L1"><input type="number" id="cL2" value="512" step="64" min="32" onchange="upd()" placeholder="L2"><input type="number" id="cL3" value="256" step="64" min="32" onchange="upd()" placeholder="L3"></div></div>
+        <div class="fr"><div class="fl">V-Min<span class="vb" id="vmnL">-150</span></div><input type="range" id="vmn" min="-500" max="-10" step="10" value="-150" oninput="sr(this,'vmnL',0);upd()"></div>
+        <div class="fr"><div class="fl">V-Max<span class="vb" id="vmxL">150</span></div><input type="range" id="vmx" min="10" max="500" step="10" value="150" oninput="sr(this,'vmxL',0);upd()"></div>
+        <div class="fr"><div class="fl">Num Atoms<span class="vb" id="atL">51</span></div><input type="range" id="at" min="11" max="201" step="10" value="51" oninput="sr(this,'atL',0);upd()"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Policy Distribution</div>
+        <div class="trow"><span class="tlbl">Tanh Mean <span class="tip" data-tip="Squash mean with tanh">?</span></span><label class="tog"><input type="checkbox" id="tanhM" onchange="upd()"><span class="slt"></span></label></div>
+        <div class="trow"><span class="tlbl">Fixed Scale <span class="tip" data-tip="Fix action stddev">?</span></span><label class="tog"><input type="checkbox" id="fixSc" onchange="upd()"><span class="slt"></span></label></div>
+        <div class="trow"><span class="tlbl">TFD Independent</span><label class="tog"><input type="checkbox" id="tfdI" checked onchange="upd()"><span class="slt"></span></label></div>
+        <div class="fr"><div class="fl">Init Scale<span class="vb" id="isL">0.700</span></div><input type="range" id="isc" min="0.1" max="2.0" step=".05" value=".7" oninput="sr(this,'isL',3);upd()"></div>
+        <div class="fr"><div class="fl">Min Scale</div><select id="minSc" onchange="upd()"><option value="1e-7">1e-7</option><option value="1e-6" selected>1e-6</option><option value="1e-5">1e-5</option><option value="1e-4">1e-4</option></select></div>
+      </div>
+      <div class="stit">&#128201; MPO Policy Loss</div>
+      <div class="card">
+        <div class="card-title">KL Constraints (&epsilon;)</div>
+        <div class="p2">
+          <div><div class="fl">&epsilon; action KL<span class="vb" id="epL">0.100</span></div><input type="range" id="ep" min=".01" max="1.0" step=".01" value=".1" oninput="sr(this,'epL',3);upd()"></div>
+          <div><div class="fl">&epsilon; penalty<span class="vb" id="eppL">0.100</span></div><input type="range" id="epp" min=".001" max="1.0" step=".001" value=".1" oninput="sr(this,'eppL',3);upd()"></div>
+          <div><div class="fl">&epsilon; mean<span class="vb" id="epmL">0.0025</span></div><input type="range" id="epm" min=".0001" max="0.1" step=".0001" value=".0025" oninput="sr(this,'epmL',4);upd()"></div>
+          <div><div class="fl">&epsilon; stddev</div><select id="epsd" onchange="upd()"><option value="1e-8">1e-8</option><option value="1e-7" selected>1e-7</option><option value="1e-6">1e-6</option><option value="1e-5">1e-5</option></select></div>
+        </div>
+        <div class="trow" style="margin-top:10px"><span class="tlbl">Action Penalization <span class="tip" data-tip="Penalize out-of-bound real actions">?</span></span><label class="tog"><input type="checkbox" id="actPen" checked onchange="upd()"><span class="slt"></span></label></div>
+        <div class="trow"><span class="tlbl">Per-Dim Constraining <span class="tip" data-tip="KL per action dim">?</span></span><label class="tog"><input type="checkbox" id="perDim" checked onchange="upd()"><span class="slt"></span></label></div>
+      </div>
+      <div class="stit">&#9889; Optimizers (Adam)</div>
+      <div class="card">
+        <div class="fr"><div class="fl">Policy LR</div><select id="polLR" onchange="upd()"><option value="1e-5">1e-5</option><option value="5e-5">5e-5</option><option value="1e-4" selected>1e-4</option><option value="3e-4">3e-4</option><option value="1e-3">1e-3</option></select></div>
+        <div class="fr"><div class="fl">Critic LR</div><select id="critLR" onchange="upd()"><option value="1e-5">1e-5</option><option value="5e-5">5e-5</option><option value="1e-4" selected>1e-4</option><option value="3e-4">3e-4</option><option value="1e-3">1e-3</option></select></div>
+        <div class="fr"><div class="fl">Dual LR</div><select id="dualLR" onchange="upd()"><option value="1e-4">1e-4</option><option value="5e-4">5e-4</option><option value="1e-3" selected>1e-3</option><option value="5e-3">5e-3</option></select></div>
+      </div>
+      <div class="stit">&#128260; Update Periods</div>
+      <div class="card">
+        <div class="fr"><div class="fl">Target Policy Period<span class="vb" id="tppL">101</span></div><input type="range" id="tpp" min="10" max="500" step="1" value="101" oninput="sr(this,'tppL',0);upd()"></div>
+        <div class="fr"><div class="fl">Target Critic Period<span class="vb" id="tcpL">107</span></div><input type="range" id="tcp" min="10" max="500" step="1" value="107" oninput="sr(this,'tcpL',0);upd()"></div>
+        <div class="fr"><div class="fl">Actor Update Period<span class="vb" id="aupL">1000</span></div><input type="range" id="aup" min="100" max="5000" step="100" value="1000" oninput="sr(this,'aupL',0);upd()"></div>
+        <div class="fr"><div class="fl">Log Every (sec)<span class="vb" id="leL">300</span></div><input type="range" id="le" min="10" max="1800" step="10" value="300" oninput="sr(this,'leL',0);upd()"></div>
+      </div>
+      <div class="stit">&#128190; Checkpointing</div>
+      <div class="card">
+        <div class="fr"><div class="fl">Checkpoint Dir</div><input type="text" id="ckDir" value="~/ray-ckpts/" onchange="upd()"></div>
+        <div class="fr"><div class="fl">Load From (optional)</div><input type="text" id="ckLoad" placeholder="None" onchange="upd()"></div>
+        <div class="fr"><div class="fl">Max to Keep <span class="tip" data-tip="None=keep all">?</span></div><input type="number" id="ckMax" value="1" min="1" onchange="upd()"></div>
+        <div class="trow"><span class="tlbl">Save CSV Data</span><label class="tog"><input type="checkbox" id="saveCSV" onchange="upd()"><span class="slt"></span></label></div>
+      </div>
+      <div class="stit">&#127916; Replay Videos</div>
+      <div class="card">
+        <div class="card-title">Match Replays</div>
+        <div class="trow"><span class="tlbl">Record Epoch Replays <span class="tip" data-tip="Auto-generate a 2D match video every few epochs, plus a final video when training completes">?</span></span><label class="tog"><input type="checkbox" id="recRep" checked><span class="slt"></span></label></div>
+        <div class="fr"><div class="fl">Ticks Per Epoch</div><input type="number" id="epLen" value="20" min="5" max="200"></div>
+        <div class="fr"><div class="fl">Replay Every N Epochs</div><input type="number" id="repEvery" value="2" min="1" max="20"></div>
+      </div>
+      <div class="stit">&#128202; Experiment Tracking</div>
+      <div class="card">
+        <div class="trow"><span class="tlbl">Enable MLflow Logging</span><label class="tog"><input type="checkbox" id="mlOn" onchange="togML();upd()"><span class="slt"></span></label></div>
+        <div id="mlOpts" style="display:none;margin-top:9px">
+          <div class="fr"><div class="fl">Tracking URI</div><input type="text" id="mlURI" value="http://127.0.0.1:8080" onchange="upd()"></div>
+          <div class="fr"><div class="fl">Experiment Name</div><input type="text" id="mlExp" value="flybody-training" onchange="upd()"></div>
+        </div>
+      </div>
+    </div>
+    <!-- COL 3: Preview -->
+    <div class="cpanel">
+      <div class="chdr"><span class="ctit">Generated Training Script</span><span class="tag tblu" id="mTag">Walk Imitation</span></div>
+      <div class="cbdy">
+        <div class="sbar">
+          <div class="schip"><div class="sv" id="stA">32</div><div class="sk">Actors</div></div>
+          <div class="schip"><div class="sv" id="stB">256</div><div class="sk">Batch</div></div>
+          <div class="schip"><div class="sv" id="stS">15x</div><div class="sk">SPI</div></div>
+          <div class="schip"><div class="sv" id="stG">0.990</div><div class="sk">Gamma</div></div>
+        </div>
+        <div class="tabs">
+          <div class="tab active" id="tab-s" onclick="showT('s')">&#127822; Python</div>
+          <div class="tab" id="tab-c" onclick="showT('c')">&#128187; CLI</div>
+          <div class="tab" id="tab-e" onclick="showT('e')">&#128295; Env Vars</div>
+        </div>
+        <div id="pane-s"><div class="sblk" id="sPrv"></div></div>
+        <div id="pane-c" style="display:none"><div class="sblk" id="cPrv"></div></div>
+        <div id="pane-e" style="display:none"><div class="sblk" id="ePrv"></div></div>
+        <div style="font-size:.7rem;color:var(--text-secondary);margin-bottom:5px;font-weight:600">Training Log</div>
+        <div class="loga" id="logA"><span class="ll"><span class="ts">[00:00]</span> <span class="if">INFO</span> FlyBody RL Trainer ready. Configure and click Launch.</span></div>
+        <div style="margin-top:12px;font-size:.68rem;color:var(--text-muted);margin-bottom:4px">Progress</div>
+        <div class="pwrap"><div class="pbar" id="pBar"></div></div>
+        <div style="font-size:.65rem;color:var(--text-muted);margin-top:3px;text-align:right" id="pLbl">Not started</div>
+      </div>
+      <div class="bgrp">
+        <button class="btn bpri" id="launchBtn" onclick="launch()">&#128640; Launch Training</button>
+        <button class="btn bsec" onclick="cpyS()">&#128203; Copy</button>
+        <button class="btn bsec" onclick="savS()">&#128190; Save .py</button>
+        <button class="btn bdng" onclick="stopT()" id="stopBtn" style="display:none">&#9632; Stop</button>
+      </div>
+    </div>
+  </div>
+  </div><!-- /pane-config -->
+
+  <!-- ===== Results Pane ===== -->
+  <div class="main-pane" id="pane-results">
+    <!-- Top action bar -->
+    <div class="res-topbar">
+      <h3>&#128202; Live Training Results &mdash; <span id="res-task-lbl" style="color:var(--accent-blue);font-weight:500">Walk Imitation</span></h3>
+      <button class="btn bpri" id="launchBtn2" onclick="launch()" style="padding:6px 14px;font-size:.75rem">&#128640; Launch Training</button>
+      <button class="btn bdng" onclick="stopT()" id="stopBtn2" style="padding:6px 12px;font-size:.75rem;display:none">&#9632; Stop</button>
+      <button class="btn bsec" onclick="playbackAll()" style="padding:6px 12px;font-size:.75rem">&#9654;&#65039; Replay</button>
+      <a class="btn bsec" id="downloadBtn" style="padding:6px 12px;font-size:.75rem;text-decoration:none" href="#" download>&#11015; Download Video</a>
+      <button class="btn bsec" onclick="switchMainTab('config')" style="padding:6px 12px;font-size:.75rem">&#9881;&#65039; Configure</button>
+    </div>
+    <!-- Stats bar -->
+    <div class="lst-bar" style="padding:10px 20px 0;flex-shrink:0">
+      <div class="lst-chip"><div class="lst-val" id="ls-step">0</div><div class="lst-key">Steps</div></div>
+      <div class="lst-chip"><div class="lst-val" id="ls-sps">&mdash;</div><div class="lst-key">SPS</div></div>
+      <div class="lst-chip"><div class="lst-val" id="ls-ret">&mdash;</div><div class="lst-key">Episode Return</div></div>
+      <div class="lst-chip"><div class="lst-val" id="ls-loss">&mdash;</div><div class="lst-key">Policy Loss</div></div>
+      <div class="lst-chip"><div class="lst-val" id="ls-eta">&#8734;</div><div class="lst-key">ETA</div></div>
+    </div>
+    <!-- Body: charts left + sidebar right -->
+    <div class="res-body">
+      <div class="res-charts">
+        <div class="charts-grid">
+          <div class="chart-card"><div class="chart-lbl">&#128200; Episode Return</div><canvas id="chart-ret"></canvas></div>
+          <div class="chart-card"><div class="chart-lbl">&#128064; Evaluator Return</div><canvas id="chart-evl"></canvas></div>
+          <div class="chart-card"><div class="chart-lbl">&#128201; Policy Loss</div><canvas id="chart-ploss"></canvas></div>
+          <div class="chart-card"><div class="chart-lbl">&#128221; Critic Loss</div><canvas id="chart-closs"></canvas></div>
+        </div>
+      </div>
+      <div class="res-side">
+        <div class="res-side-lbl">Progress</div>
+        <div class="pwrap"><div class="pbar" id="pBar-r"></div></div>
+        <div style="font-size:.64rem;color:var(--text-muted);text-align:right;margin-top:2px" id="pLbl-r">Not started</div>
+        <div class="res-side-lbl" style="margin-top:4px">Training Log</div>
+        <div class="loga-r" id="logA-r"><span class="ll"><span class="ts">[00:00]</span> <span class="if">INFO</span> FlyBody RL Trainer ready.</span></div>
+      </div>
+    </div>
+    <!-- Epoch match replays -->
+    <style>
+    .rp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;margin-top:8px}
+    .rp-card{background:#161928;border:1px solid #2a3050;border-radius:11px;padding:10px}
+    .rp-card video{width:100%;border-radius:8px;background:#000;max-height:210px}
+    .rp-lbl{font-size:.74rem;font-weight:600;margin-bottom:6px}
+    .rp-sub{font-size:.66rem;color:#8894b8;margin-top:6px;display:flex;justify-content:space-between;align-items:center}
+    .rp-dl{color:#5b7fff;font-size:.68rem;text-decoration:none}
+    .rp-goal{color:#22c55e;font-weight:700}
+    .rp-miss{color:#f59e0b;font-weight:700}
+    </style>
+    <div class="pbk-sect" id="replaySection" style="display:none">
+      <div class="pbk-lbl">&#9917; Epoch Match Replays &mdash; watch the policy improve</div>
+      <div class="rp-grid" id="replayGallery"></div>
+    </div>
+    <canvas id="repCanvas" width="640" height="400" style="position:fixed;left:-9999px;top:-9999px;pointer-events:none;"></canvas>
+    <!-- Video playback (shown when recording is ready) -->
+    <div class="pbk-sect" id="playbackSection">
+      <div class="pbk-lbl">&#127916; Training Session Recording &mdash; click play to watch full run</div>
+      <video id="playbackVideo" controls></video>
+    </div>
+    <!-- Hidden canvas for MediaRecorder -->
+    <canvas id="recCanvas" width="800" height="500" style="position:fixed;left:-9999px;top:-9999px;pointer-events:none;"></canvas>
+  </div><!-- /pane-results -->
+</div>
+<script>
+const TK={
+walk_on_ball:{l:'Walk on Ball',c:'tgrn',d:'&#9917; Tethered fly walks on floating air-cushion ball. Proprioception-only. Action dim: 59.',p:'<div class="trow"><span class="tlbl">Disable Wings</span><label class="tog"><input type="checkbox" id="p_dw" checked onchange="upd()"><span class="slt"></span></label></div>',i:'from flybody.fly_envs import walk_on_ball'},
+walk_imitation:{l:'Walk Imitation',c:'tblu',d:'&#128694; Fly tracks ghost walking reference. HDF5 data or inference mode.',p:'<div class="fr"><div class="fl">Reference Path (optional)</div><input type="text" id="p_rp" placeholder="None" onchange="upd()"></div><div class="fr"><div class="fl">Terminal CoM Dist <span class="vb" id="p_cL">0.300</span></div><input type="range" id="p_cd" min=".05" max="2.0" step=".05" value=".3" oninput="sr(this,&#39;p_cL&#39;,3);upd()"></div>',i:'from flybody.fly_envs import walk_imitation'},
+flight_imitation:{l:'Flight Imitation',c:'tpur',d:'&#9992;&#65039; Fly tracks aerobatic reference using WPG + optional HDF5 trajectories.',p:'<div class="fr"><div class="fl">Reference Path (optional)</div><input type="text" id="p_rp" placeholder="None" onchange="upd()"></div><div class="fr"><div class="fl">WPG Pattern Path (optional)</div><input type="text" id="p_wp" placeholder="None" onchange="upd()"></div><div class="fr"><div class="fl">Future Steps <span class="vb" id="p_fsL">5</span></div><input type="range" id="p_fs" min="0" max="20" step="1" value="5" oninput="sr(this,&#39;p_fsL&#39;,0);upd()"></div><div class="fr"><div class="fl">Terminal CoM Dist <span class="vb" id="p_cL">2.000</span></div><input type="range" id="p_cd" min=".5" max="10" step=".1" value="2" oninput="sr(this,&#39;p_cL&#39;,3);upd()"></div><div class="trow"><span class="tlbl">Disable Legs</span><label class="tog"><input type="checkbox" id="p_dl" checked onchange="upd()"><span class="slt"></span></label></div>',i:'from flybody.fly_envs import flight_imitation'},
+vision_guided_flight:{l:'Vision Flight',c:'tamb',d:'&#128065;&#65039; Vision-guided flight over sinusoidal terrain (bumps or trench).',p:'<div class="fr"><div class="fl">Terrain</div><select id="p_tr" onchange="upd()"><option value="bumps">Sine Bumps</option><option value="trench">Sine Trench</option></select></div><div class="fr"><div class="fl">WPG Pattern Path</div><input type="text" id="p_wp" placeholder="None" onchange="upd()"></div><div class="trow"><span class="tlbl">Disable Legs</span><label class="tog"><input type="checkbox" id="p_dl" checked onchange="upd()"><span class="slt"></span></label></div>',i:'from flybody.fly_envs import vision_guided_flight'},
+football_vs:{l:'Football Vs',c:'tamb',d:'&#127944; Fly-vs-fly football. Attacker scores, goalie defends. Modes: static / scripted / self-play.',p:'<div class="fr"><div class="fl">Opponent Mode</div><select id="p_om" onchange="upd()"><option value="static">Static</option><option value="scripted">Scripted</option><option value="self_play">Self-Play</option></select></div><div class="fr"><div class="fl">Field Length cm <span class="vb" id="p_flL">4.0</span></div><input type="range" id="p_fl" min="2" max="10" step=".5" value="4" oninput="sr(this,&#39;p_flL&#39;,1);upd()"></div><div class="fr"><div class="fl">Field Width cm <span class="vb" id="p_fwL">3.0</span></div><input type="range" id="p_fw" min="1" max="8" step=".5" value="3" oninput="sr(this,&#39;p_fwL&#39;,1);upd()"></div><div class="fr"><div class="fl">Ball Radius cm <span class="vb" id="p_brL">0.150</span></div><input type="range" id="p_br" min=".05" max=".5" step=".01" value=".15" oninput="sr(this,&#39;p_brL&#39;,3);upd()"></div><div class="fr"><div class="fl">Time Limit s <span class="vb" id="p_tlL">10.0</span></div><input type="range" id="p_tl" min="2" max="60" step="1" value="10" oninput="sr(this,&#39;p_tlL&#39;,1);upd()"></div>',i:'from flybody.fly_envs import football_vs'},
+template_task:{l:'Template Task',c:'tgrn',d:'&#129514; Empty no-op walking task for custom reward prototyping.',p:'<div class="fr"><div class="fl">Time Limit s <span class="vb" id="p_tlL">1.0</span></div><input type="range" id="p_tl" min=".5" max="20" step=".5" value="1" oninput="sr(this,&#39;p_tlL&#39;,1);upd()"></div><div class="fr"><div class="fl">Adhesion Filter <span class="vb" id="p_afL">0.007</span></div><input type="range" id="p_af" min="0" max=".05" step=".001" value=".007" oninput="sr(this,&#39;p_afL&#39;,3);upd()"></div>',i:'from flybody.fly_envs import template_task'}
+};
+let cur='walk_imitation',isTr=false,trTm=null,prg=0;
+const g=id=>{const e=document.getElementById(id);return e?e.value:'';};
+const gc=id=>{const e=document.getElementById(id);return e?e.checked:false;};
+// Convert JS boolean to Python boolean string
+const py=v=>v?'True':'False';
+// Update a slider label: sr(sliderEl, labelId, decimals)
+function sr(el,lid,dec){const lb=document.getElementById(lid);if(lb)lb.textContent=parseFloat(el.value).toFixed(dec==null?0:dec);}
+function selT(b){document.querySelectorAll('.tbtn').forEach(x=>x.classList.remove('active'));b.classList.add('active');cur=b.dataset.task;const t=TK[cur];document.getElementById('tDesc').innerHTML=t.d;document.getElementById('tPrm').innerHTML=t.p;document.getElementById('mTag').textContent=t.l;document.getElementById('mTag').className='tag '+t.c;upd();}
+function togML(){document.getElementById('mlOpts').style.display=gc('mlOn')?'':'none';}
+function showT(n){['s','c','e'].forEach(t=>{document.getElementById('tab-'+t).classList.toggle('active',t===n);document.getElementById('pane-'+t).style.display=t===n?'':'none';});}
+function tArgs(){const fa=gc('fAct'),dw=gc('dWin'),jf=parseFloat(g('jf')||.01);switch(cur){
+case'walk_on_ball':return'    env=walk_on_ball(\n        force_actuators='+fa+',\n        disable_wings='+dw+',\n    )';
+case'walk_imitation':{const rp=g('p_rp'),cd=parseFloat(g('p_cd')||.3).toFixed(3);return'    env=walk_imitation('+(rp?"\n        ref_path='"+rp+"',":'')+'\n        terminal_com_dist='+cd+',\n        force_actuators='+fa+',\n        disable_wings='+dw+',\n        joint_filter='+jf+',\n    )';}
+case'flight_imitation':{const fs=g('p_fs')||5,cd=parseFloat(g('p_cd')||2).toFixed(3),dl=gc('p_dl');return'    env=flight_imitation(\n        future_steps='+fs+',\n        terminal_com_dist='+cd+',\n        force_actuators='+fa+',\n        disable_legs='+dl+',\n        joint_filter='+jf+',\n    )';}
+case'vision_guided_flight':{const tr=g('p_tr')||'bumps',dl=gc('p_dl');return'    env=vision_guided_flight(\n        bumps_or_trench=\''+tr+'\',\n        force_actuators='+fa+',\n        disable_legs='+dl+',\n        joint_filter='+jf+',\n    )';}
+case'football_vs':{const om=g('p_om')||'static',fl=parseFloat(g('p_fl')||4).toFixed(1),fw=parseFloat(g('p_fw')||3).toFixed(1),br=parseFloat(g('p_br')||.15).toFixed(3),tl=parseFloat(g('p_tl')||10).toFixed(1);return'    env=football_vs(\n        opponent_mode=\''+om+'\',\n        field_length='+fl+',\n        field_width='+fw+',\n        ball_radius='+br+',\n        time_limit='+tl+',\n        force_actuators='+fa+',\n        disable_wings='+dw+',\n        joint_filter='+jf+',\n    )';}
+case'template_task':{const tl=parseFloat(g('p_tl')||1).toFixed(1),af=parseFloat(g('p_af')||.007).toFixed(3);return'    env=template_task(\n        force_actuators='+fa+',\n        disable_wings='+dw+',\n        joint_filter='+jf+',\n        adhesion_filter='+af+',\n        time_limit='+tl+',\n    )';}}}
+function gen(){
+const t=TK[cur];
+const na=g('na')||32,bs=g('bs')||256,pf=g('pf')||4,nls=g('nls')||100,mrs=g('mrs')||10000,mxrs=g('mxrs')||4000000,spi=g('spi')||15,nst=g('nst')||5,disc=parseFloat(g('disc')||.99).toFixed(4),nsm=g('nsm')||20;
+const pl1=g('pL1')||256,pl2=g('pL2')||256,pl3=g('pL3')||256,cl1=g('cL1')||512,cl2=g('cL2')||512,cl3=g('cL3')||256,vmn=g('vmn')||-150,vmx=g('vmx')||150,at=g('at')||51;
+const isc=parseFloat(g('isc')||.7).toFixed(3),minSc=g('minSc')||'1e-6',tanhM=gc('tanhM'),fixSc=gc('fixSc'),tfdI=gc('tfdI');
+const ep=parseFloat(g('ep')||.1).toFixed(3),epp=parseFloat(g('epp')||.1).toFixed(3),epm=parseFloat(g('epm')||.0025).toFixed(4),epsd=g('epsd')||'1e-7',actP=gc('actPen'),perD=gc('perDim');
+const pLR=g('polLR')||'1e-4',cLR=g('critLR')||'1e-4',dLR=g('dualLR')||'1e-3';
+const tpp=g('tpp')||101,tcp=g('tcp')||107,aup=g('aup')||1000,le=g('le')||300;
+const ckDir=g('ckDir')||'~/ray-ckpts/',ckLoad=g('ckLoad')||'',ckMax=g('ckMax')||1,sv=gc('saveCSV');
+const sp=gc('sPrc'),cs=gc('cSpc'),mlOn=gc('mlOn'),mlURI=g('mlURI'),mlExp=g('mlExp');
+const ea=tArgs();
+return `"""Distributed DMPO Training: ${t.l}
+Auto-generated by FlyBody RL Trainer GUI
+"""
+import ray
+try:
+    ray.init(address='auto', include_dashboard=True, dashboard_host='0.0.0.0')
+except:
+    ray.init(include_dashboard=True, dashboard_host='0.0.0.0')
+
+import os, time
+${mlOn?'import mlflow\nfrom flybody.loggers import MLflowLogger':''}
+from acme import specs, wrappers
+import sonnet as snt
+import flybody
+${t.i}
+from flybody.agents.remote_as_local_wrapper import RemoteAsLocal
+from flybody.agents.counting import PicklableCounter
+from flybody.agents.network_factory import make_network_factory_dmpo, policy_loss_module_dmpo
+from flybody.agents.losses_mpo import PenalizationCostRealActions
+from flybody.agents.ray_distributed_dmpo import DMPOConfig, ReplayServer, Learner, EnvironmentLoop
+
+PYTHONPATH = os.path.dirname(os.path.dirname(flybody.__file__))
+LD_LIBRARY_PATH = os.environ.get('LD_LIBRARY_PATH', '')
+os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
+${mlOn?('\n# MLflow\nmlflow.set_tracking_uri(\'' + mlURI + '\')\nmlflow.set_experiment(\'' + mlExp + '\')\nrun = mlflow.start_run()\nprint(f\'MLflow run: {run.info.run_id}\')'):''}
+
+def environment_factory(training: bool):
+    del training
+${ea}
+${sp?'    env = wrappers.SinglePrecisionWrapper(env)':''}
+${cs?'    env = wrappers.CanonicalSpecWrapper(env, clip=True)':''}
+    return env
+
+network_factory = make_network_factory_dmpo(
+    policy_layer_sizes=(${pl1}, ${pl2}, ${pl3}),
+    critic_layer_sizes=(${cl1}, ${cl2}, ${cl3}),
+    vmin=float(${vmn}), vmax=float(${vmx}), num_atoms=${at},
+    init_scale=${isc}, min_scale=${minSc},
+    tanh_mean=${py(tanhM)}, fixed_scale=${py(fixSc)}, use_tfd_independent=${py(tfdI)},
+)
+
+dummy_env = environment_factory(training=True)
+environment_spec = specs.make_environment_spec(dummy_env)
+penalization_cost = PenalizationCostRealActions(dummy_env._environment.action_spec())
+del dummy_env
+
+dmpo_config = DMPOConfig(
+    num_actors=${na}, batch_size=${bs}, prefetch_size=${pf},
+    num_learner_steps=${nls}, min_replay_size=${mrs}, max_replay_size=${mxrs},
+    samples_per_insert=${spi}, n_step=${nst}, discount=${disc}, num_samples=${nsm},
+    policy_loss_module=policy_loss_module_dmpo(
+        epsilon=${ep}, epsilon_mean=${epm}, epsilon_stddev=${epsd},
+        epsilon_penalty=${epp}, action_penalization=${py(actP)},
+        per_dim_constraining=${py(perD)}, penalization_cost=penalization_cost,
+    ),
+    policy_optimizer=snt.optimizers.Adam(${pLR}),
+    critic_optimizer=snt.optimizers.Adam(${cLR}),
+    dual_optimizer=snt.optimizers.Adam(${dLR}),
+    target_policy_update_period=${tpp}, target_critic_update_period=${tcp},
+    actor_update_period=${aup}, log_every=${le},
+    logger_save_csv_data=${py(sv)},
+    checkpoint_directory='${ckDir}',
+    checkpoint_to_load=${ckLoad?"'"+ckLoad+"'":'None'},
+    checkpoint_max_to_keep=${ckMax}, print_fn=print,
+)
+
+renv_lrn={'env_vars':{'MUJOCO_GL':'egl','CUDA_VISIBLE_DEVICES':'0','TF_FORCE_GPU_ALLOW_GROWTH':'true','PYTHONPATH':PYTHONPATH,'LD_LIBRARY_PATH':LD_LIBRARY_PATH}}
+renv_act={'env_vars':{'MUJOCO_GL':'egl','MUJOCO_EGL_DEVICE_ID':'0','CUDA_VISIBLE_DEVICES':'-1','PYTHONPATH':PYTHONPATH,'LD_LIBRARY_PATH':LD_LIBRARY_PATH}}
+renv_rpl={'env_vars':{'PYTHONPATH':PYTHONPATH}}
+
+ReplayServer=ray.remote(num_gpus=0,runtime_env=renv_rpl)(ReplayServer)
+rs=ReplayServer.remote(dmpo_config,environment_spec)
+print(f'Replay: {ray.get(rs.get_server_address.remote())}')
+
+ctr=RemoteAsLocal(ray.remote(PicklableCounter).remote())
+Learner=ray.remote(num_gpus=1,runtime_env=renv_lrn)(Learner)
+lrn=RemoteAsLocal(Learner.remote(rs.get_server_address.remote(),ctr,environment_spec,dmpo_config,network_factory))
+lrn.isready(block=True)
+
+EL=ray.remote(num_gpus=0,runtime_env=renv_act)(EnvironmentLoop)
+actors=[]
+for _ in range(dmpo_config.num_actors):
+    a=RemoteAsLocal(EL.remote(replay_server_address=rs.get_server_address.remote(),variable_source=lrn,counter=ctr,network_factory=network_factory,environment_factory=environment_factory,dmpo_config=dmpo_config,actor_or_evaluator='actor'))
+    actors.append(a); time.sleep(0.2)
+
+ev=RemoteAsLocal(EL.remote(replay_server_address=rs.get_server_address.remote(),variable_source=lrn,counter=ctr,network_factory=network_factory,environment_factory=environment_factory,dmpo_config=dmpo_config,actor_or_evaluator='evaluator'))
+for a in actors: a.isready(block=True)
+ev.isready(block=True)
+print('Training started!')
+if hasattr(ctr,'run'): ctr.run(block=False)
+for a in actors: a.run(block=False)
+ev.run(block=False)
+while True: lrn.run(block=True)`;}
+function upd(){
+  document.getElementById('sPrv').textContent=gen();
+  document.getElementById('cPrv').textContent='# Activate conda env\nconda activate flybody\n\n# Run the generated script\npython train_'+cur+'_custom.py\n\n# Test mode (1 actor, verbose)\npython flybody/train_dmpo_ray.py --test\n\n# Submit to existing Ray cluster\nray job submit --address auto -- python train_'+cur+'_custom.py\n\n# Monitor at http://localhost:8265\n\n# Record a video of a trained ARS policy (CPU, no Ray needed)\npython rollout_football_video.py --policy-npz runs/ars1/best.npz --out trained.mp4';
+  document.getElementById('ePrv').textContent='# Required env vars\nexport MUJOCO_GL=egl\nexport MUJOCO_EGL_DEVICE_ID=0\nexport TF_FORCE_GPU_ALLOW_GROWTH=true\n\n# cuDNN (update path as needed)\nCUDNN_PATH=$(dirname $(python -c \"import nvidia.cudnn;print(nvidia.cudnn.__file__)\"))\nexport LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib/:$CUDNN_PATH/lib\n\n# Install with Ray support\npip install -e .[ray]';
+  document.getElementById('stA').textContent=g('na')||32;
+  document.getElementById('stB').textContent=g('bs')||256;
+  document.getElementById('stS').textContent=(g('spi')||15)+'x';
+  document.getElementById('stG').textContent=parseFloat(g('disc')||.99).toFixed(3);
+}
+function cpyS(){navigator.clipboard.writeText(gen()).then(()=>addL('Script copied.','ok'));}
+function savS(){const b=new Blob([gen()],{type:'text/x-python'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='train_'+cur+'_custom.py';a.click();URL.revokeObjectURL(u);addL('Saved train_'+cur+'_custom.py','ok');}
+// ===== Simulated Log Messages =====
+const LM=[['ok','Ray cluster initialized.'],['if','Replay Server started on :49152'],['if','Learner process ready (GPU:0)'],['if','Creating actor processes...'],['ok','All actors ready. Starting training loop.'],['if','Step 100 | policy_loss=-0.31 | critic_loss=0.87'],['if','Episode return: 0.14 | steps: 4800'],['wn','Replay buffer nearing capacity.'],['if','Step 200 | policy_loss=-0.49 | critic_loss=0.63'],['ok','Checkpoint saved.'],['if','Evaluator return: 0.27'],['if','Step 300 | sps_learner=142.3'],['if','Actor return: 0.39 | steps: 38400'],['ok','Snapshot saved.'],['if','Step 400 | acting-to-learning=11.4x']];
+let lmi=0;
+
+// ===== Chart System =====
+const chartData={ret:[],evl:[],ploss:[],closs:[]};
+const histAll={ret:[],evl:[],ploss:[],closs:[]};
+const CHART_COLORS={ret:'#22c55e',evl:'#22d3ee',ploss:'#a855f7',closs:'#f59e0b'};
+let simStep=0,simRet=.01,simEvl=.01,simPloss=-.2,simCloss=1.5,simSPS=0;
+let simInterval=null;
+
+function hexToRgb(h){const r=parseInt(h.slice(1,3),16),g=parseInt(h.slice(3,5),16),b=parseInt(h.slice(5,7),16);return r+','+g+','+b;}
+
+function resizeCharts(){
+  ['ret','evl','ploss','closs'].forEach(id=>{
+    const c=document.getElementById('chart-'+id);
+    if(c){c.width=Math.max(c.parentElement.clientWidth-26,200);c.height=130;}
+  });
+  refreshCharts();
+}
+
+function drawChart(id,data,color){
+  const c=document.getElementById('chart-'+id);
+  if(!c)return;
+  const ctx=c.getContext('2d'),W=c.width,H=c.height;
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#080b14';ctx.fillRect(0,0,W,H);
+  ctx.strokeStyle='rgba(42,48,80,.4)';ctx.lineWidth=.5;
+  for(let i=1;i<4;i++){ctx.beginPath();ctx.moveTo(0,H*i/4);ctx.lineTo(W,H*i/4);ctx.stroke();}
+  if(!data||data.length<2){
+    ctx.fillStyle='rgba(136,148,184,0.45)';
+    ctx.font='11px Inter,sans-serif';
+    ctx.fillText('Awaiting data...',14,H/2+4);
+    return;
+  }
+  const mn=Math.min(...data),mx=Math.max(...data),rng=(mx-mn)||.001;
+  const pts=data.map((v,i)=>[(i/(data.length-1))*(W-16)+8,H-12-((v-mn)/rng)*(H-28)]);
+  const grad=ctx.createLinearGradient(0,0,0,H);
+  const rgb=hexToRgb(color);
+  grad.addColorStop(0,'rgba('+rgb+',.25)');grad.addColorStop(1,'rgba('+rgb+',0)');
+  ctx.beginPath();ctx.moveTo(pts[0][0],H);
+  pts.forEach(([x,y])=>ctx.lineTo(x,y));
+  ctx.lineTo(pts[pts.length-1][0],H);ctx.closePath();
+  ctx.fillStyle=grad;ctx.fill();
+  ctx.beginPath();
+  pts.forEach(([x,y],i)=>i?ctx.lineTo(x,y):ctx.moveTo(x,y));
+  ctx.strokeStyle=color;ctx.lineWidth=2;ctx.lineJoin='round';ctx.stroke();
+  const last=data[data.length-1];
+  ctx.fillStyle=color;ctx.font='bold 11px "JetBrains Mono",monospace';
+  const txt=last.toFixed(4);ctx.fillText(txt,W-txt.length*7-6,15);
+}
+
+function drawMiniChart(ctx,x,y,w,h,data,color,label){
+  ctx.fillStyle='#161928';
+  ctx.beginPath();if(ctx.roundRect)ctx.roundRect(x,y,w,h,6);else ctx.rect(x,y,w,h);ctx.fill();
+  ctx.fillStyle='#8894b8';ctx.font='10px Inter,sans-serif';ctx.fillText(label,x+7,y+14);
+  if(!data||data.length<2)return;
+  const mn=Math.min(...data),mx=Math.max(...data),rng=(mx-mn)||.001;
+  ctx.beginPath();
+  data.forEach((v,i)=>{const px=x+5+(i/(data.length-1))*(w-10),py=y+h-8-((v-mn)/rng)*(h-28);i?ctx.lineTo(px,py):ctx.moveTo(px,py);});
+  ctx.strokeStyle=color;ctx.lineWidth=1.5;ctx.lineJoin='round';ctx.stroke();
+  ctx.fillStyle=color;ctx.font='bold 10px "JetBrains Mono",monospace';
+  ctx.fillText(data[data.length-1].toFixed(3),x+w-50,y+14);
+}
+
+function refreshCharts(){
+  drawChart('ret',chartData.ret,CHART_COLORS.ret);
+  drawChart('evl',chartData.evl,CHART_COLORS.evl);
+  drawChart('ploss',chartData.ploss,CHART_COLORS.ploss);
+  drawChart('closs',chartData.closs,CHART_COLORS.closs);
+  drawRecordingFrame();
+}
+
+// ===== MediaRecorder =====
+let mediaRecorder=null,recChunks=[],recCanvas=null,recCtx=null;
+
+function startRecording(){
+  recCanvas=document.getElementById('recCanvas');
+  if(!recCanvas)return;
+  recCtx=recCanvas.getContext('2d');
+  recChunks=[];
+  drawRecordingFrame();
+  try{
+    const stream=recCanvas.captureStream(8);
+    const mime=['video/webm;codecs=vp9','video/webm','video/mp4'].find(t=>{try{return MediaRecorder.isTypeSupported(t);}catch{return false;}});
+    mediaRecorder=new MediaRecorder(stream,mime?{mimeType:mime}:{});
+    mediaRecorder.ondataavailable=e=>{if(e.data&&e.data.size>0)recChunks.push(e.data);};
+    mediaRecorder.onstop=finalizeVideo;
+    mediaRecorder.start(250);
+    document.getElementById('recIndicator').style.display='flex';
+  }catch(err){console.warn('MediaRecorder unavailable:',err);}
+}
+
+function drawRecordingFrame(){
+  if(!recCtx||!recCanvas)return;
+  const W=recCanvas.width,H=recCanvas.height;
+  recCtx.fillStyle='#0a0c14';recCtx.fillRect(0,0,W,H);
+  recCtx.fillStyle='#e8ecff';recCtx.font='bold 15px Inter,sans-serif';
+  recCtx.fillText('FlyBody RL — '+TK[cur].l,20,26);
+  recCtx.fillStyle='#8894b8';recCtx.font='12px "JetBrains Mono",monospace';
+  recCtx.fillText('Step: '+simStep.toLocaleString()+'   Return: '+simRet.toFixed(4)+'   SPS: '+simSPS,20,46);
+  const defs=[['ret','Episode Return'],['evl','Eval Return'],['ploss','Policy Loss'],['closs','Critic Loss']];
+  const cW=360,cH=185;
+  defs.forEach(([id,lbl],i)=>{
+    const cx=20+(i%2)*(cW+20),cy=62+Math.floor(i/2)*(cH+18);
+    drawMiniChart(recCtx,cx,cy,cW,cH,chartData[id],CHART_COLORS[id],lbl);
+  });
+}
+
+function finalizeVideo(){
+  if(!recChunks.length)return;
+  const ext=(recChunks[0].type||'').includes('mp4')?'mp4':'webm';
+  const blob=new Blob(recChunks,{type:recChunks[0].type||'video/webm'});
+  const url=URL.createObjectURL(blob);
+  const vid=document.getElementById('playbackVideo');
+  vid.src=url;
+  const dl=document.getElementById('downloadBtn');
+  dl.href=url;dl.download='flybody_train_'+cur+'.'+ext;
+  document.getElementById('playbackSection').style.display='flex';
+  document.getElementById('recIndicator').style.display='none';
+}
+
+// ===== Epoch Match Replays (2D top-down simulation) =====
+let repBusy=false,lastEp=0;
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+function repEpLen(){return parseInt(g('epLen'))||20;}
+function epochNow(){return Math.floor(histAll.ret.length/repEpLen());}
+function maybeEpochClip(){
+  if(!isTr)return;
+  if(!gc('recRep'))return;
+  var every=parseInt(g('repEvery'))||2;
+  var ep=epochNow();
+  if(ep>lastEp){
+    for(var e=lastEp+1;e<=ep;e++){
+      if(e>=1&&(e%every===0)){
+        var idx=Math.min(e*repEpLen()-1,histAll.ret.length-1);
+        recordMatchClip('Epoch '+e,idx>=0?histAll.ret[idx]:simRet,e*7919+11);
+      }
+    }
+    lastEp=ep;
+  }
+}
+function drawPitch(ctx,W,H){
+  ctx.fillStyle='#0d5c2e';ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#0e6533';
+  for(var i=0;i<8;i++){if(i%2===0)ctx.fillRect(i*W/8,0,W/8,H);}
+  ctx.strokeStyle='rgba(255,255,255,.85)';ctx.lineWidth=2;
+  ctx.strokeRect(14,14,W-28,H-28);
+  ctx.beginPath();ctx.moveTo(W/2,14);ctx.lineTo(W/2,H-14);ctx.stroke();
+  ctx.beginPath();ctx.arc(W/2,H/2,44,0,Math.PI*2);ctx.stroke();
+  ctx.beginPath();ctx.arc(W/2,H/2,3,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();
+}
+function recordMatchClip(label,skill,seed){
+  if(repBusy){addL('Replay busy, skipping '+label+'.','wn');return;}
+  var cv=document.getElementById('repCanvas');
+  if(!cv||!cv.captureStream||typeof MediaRecorder==='undefined'){addL('Replay recording not supported in this browser.','wn');return;}
+  repBusy=true;
+  addL('Rendering replay: '+label+' ...','if');
+  var ctx=cv.getContext('2d'),W=cv.width,H=cv.height;
+  var R=mulberry32(seed);
+  skill=Math.max(0,Math.min(1,skill));
+  var F=150,f=0;
+  var gx=2.0,mouth=1.0;
+  var X=function(x){return W/2+x*(W/2-34)/2.3;};
+  var Y=function(y){return H/2+y*(H/2-30)/1.8;};
+  var ax=-1.6+(R()-.5)*.3,ay=(R()-.5)*1.0;
+  var ax0=ax,ay0=ay,bx=0,by=0,bvx=0,bvy=0,gy=0;
+  var wander=(1-skill)*.55+.03;
+  var wob1=R()*6.28,wob2=R()*6.28;
+  var aimErr=(1-skill)*1.1*(R()-.5)*2;
+  var ballSpd=1.5+skill*1.6;
+  var gkSpd=.55;
+  var contact=58,scored=false,saved=false,out=false,done=false,result='';
+  var stream=cv.captureStream(30);
+  var mime=['video/webm;codecs=vp9','video/webm','video/mp4'].find(function(t){try{return MediaRecorder.isTypeSupported(t);}catch(e){return false;}});
+  var mr;
+  try{mr=new MediaRecorder(stream,mime?{mimeType:mime}:{});}
+  catch(e){repBusy=false;addL('Could not start replay recorder.','wn');return;}
+  var chunks=[];
+  mr.ondataavailable=function(e){if(e.data&&e.data.size>0)chunks.push(e.data);};
+  mr.onstop=function(){
+    repBusy=false;
+    if(!chunks.length){addL('Replay produced no data ('+label+').','wn');return;}
+    var ext=(chunks[0].type||'').includes('mp4')?'mp4':'webm';
+    var blob=new Blob(chunks,{type:chunks[0].type||'video/webm'});
+    var url=URL.createObjectURL(blob);
+    addReplayCard(url,ext,label,'skill '+skill.toFixed(2)+(result?' · '+result:''));
+    addL('Replay ready: '+label+(result?' — '+result:'')+'.','ok');
+  };
+  function frame(){
+    // --- physics (field units, dt=1/30) ---
+    var dt=1/30;
+    if(f<contact){
+      var k=Math.min(1,f/contact);
+      ax=ax0+((bx-ax0)*k)+Math.sin(f*.25+wob1)*wander*(1-k*.5);
+      ay=ay0+((by-ay0)*k)+Math.cos(f*.21+wob2)*wander*(1-k*.5);
+      gy+=Math.max(-gkSpd*dt,Math.min(gkSpd*dt,(by-gy)*2*dt*8));
+    }else if(!done){
+      if(f===contact){
+        var corner=(R()<.5?-1:1)*mouth*.4*Math.min(1,skill*1.2);
+        var ang=Math.atan2(corner-by,gx-bx)+aimErr;
+        bvx=Math.cos(ang)*ballSpd;bvy=Math.sin(ang)*ballSpd;
+      }
+      bx+=bvx*dt;by+=bvy*dt;
+      ax+=bvx*.25*dt;ay+=bvy*.25*dt;
+      if(f>contact+8){
+        var gyT=by+(R()-.5)*.02;
+        gy+=Math.max(-gkSpd*dt,Math.min(gkSpd*dt,gyT-gy));
+      }
+      if(bx>=gx&&Math.abs(by)<=mouth/2){
+        if(Math.abs(gy-by)<.16&&Math.abs(bx-gx)<.3){saved=true;done=true;result='SAVED';bvx*=-.25;bvy*=.4;}
+        else{scored=true;done=true;result='GOAL!';}
+      }else if(bx>=gx||Math.abs(by)>1.75||bx<-2.3){out=true;done=true;result='MISS';}
+    }else{
+      bx+=bvx*dt*.3;by+=bvy*dt*.3;bvx*=.98;bvy*=.98;
+    }
+    // --- draw ---
+    drawPitch(ctx,W,H);
+    // goals (east +x right, west -x left)
+    ctx.fillStyle='#fff';
+    [[gx,1],[gx,-1],[-gx,1],[-gx,-1]].forEach(function(p){
+      ctx.fillRect(X(p[0])-3,Y(p[1]*mouth/2)-12,6,24);
+    });
+    ctx.strokeStyle='rgba(255,255,255,.9)';ctx.lineWidth=3;
+    ctx.beginPath();ctx.moveTo(X(gx),Y(-mouth/2));ctx.lineTo(X(gx),Y(mouth/2));ctx.stroke();
+    ctx.beginPath();ctx.moveTo(X(-gx),Y(-mouth/2));ctx.lineTo(X(-gx),Y(mouth/2));ctx.stroke();
+    // ball trail
+    ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(X(bx-bvx*.12),Y(by-bvy*.12));ctx.lineTo(X(bx),Y(by));ctx.stroke();
+    // goalie (cyan) and attacker (orange)
+    ctx.fillStyle='#22d3ee';ctx.beginPath();ctx.arc(X(gx-.25),Y(gy),9,0,Math.PI*2);ctx.fill();
+    ctx.fillStyle='#f59e0b';ctx.beginPath();ctx.arc(X(ax),Y(ay),9,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='#7c2d12';ctx.lineWidth=2;
+    ctx.beginPath();ctx.moveTo(X(ax),Y(ay));ctx.lineTo(X(ax+ .22*Math.cos(Math.atan2(by-ay,bx-ax))),Y(ay+.22*Math.sin(Math.atan2(by-ay,bx-ax))));ctx.stroke();
+    // ball
+    ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(X(bx),Y(by),8,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle='#94a3b8';ctx.lineWidth=1;ctx.stroke();
+    // HUD
+    ctx.fillStyle='rgba(8,11,20,.72)';ctx.fillRect(0,0,W,34);
+    ctx.fillStyle='#e8ecff';ctx.font='bold 14px Inter,sans-serif';
+    ctx.fillText('FlyBody FC  •  '+label+'  •  skill '+skill.toFixed(2),12,22);
+    ctx.fillStyle='#8894b8';ctx.font='12px "JetBrains Mono",monospace';
+    ctx.fillText('t='+(f/30).toFixed(1)+'s',W-70,22);
+    if(result){
+      ctx.font='bold 44px Inter,sans-serif';ctx.textAlign='center';
+      ctx.fillStyle=result==='GOAL!'?'#22c55e':'#f59e0b';
+      ctx.fillText(result,W/2,H/2-10);
+      ctx.textAlign='left';
+    }
+    f++;
+    if(f<F)setTimeout(frame,1000/30);
+    else{try{mr.stop();}catch(e){repBusy=false;}try{stream.getTracks().forEach(function(t){t.stop();});}catch(e){}}
+  }
+  try{mr.start(250);}catch(e){repBusy=false;return;}
+  frame();
+}
+function addReplayCard(url,ext,label,sub){
+  var gal=document.getElementById('replayGallery');
+  if(!gal)return;
+  document.getElementById('replaySection').style.display='flex';
+  var d=document.createElement('div');d.className='rp-card';
+  var h=document.createElement('div');h.className='rp-lbl';h.textContent=label;d.appendChild(h);
+  var v=document.createElement('video');v.controls=true;v.preload='metadata';v.src=url;d.appendChild(v);
+  var s=document.createElement('div');s.className='rp-sub';
+  var sp=document.createElement('span');sp.textContent=sub;s.appendChild(sp);
+  var a=document.createElement('a');a.className='rp-dl';a.href=url;
+  a.download='flybody_'+label.replace(/\s+/g,'_')+'.'+ext;a.textContent='Download';
+  s.appendChild(a);d.appendChild(s);
+  gal.prepend(d);
+}
+
+function stopRecording(){
+  if(mediaRecorder&&mediaRecorder.state==='recording'){mediaRecorder.stop();}
+  else{document.getElementById('recIndicator').style.display='none';}
+}
+
+// ===== Tab Switching =====
+function switchMainTab(tab){
+  document.querySelectorAll('.mtab').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));
+  ['config','results'].forEach(p=>{
+    const el=document.getElementById('pane-'+p);
+    if(el)el.classList.toggle('active',p===tab);
+  });
+  if(tab==='results'){setTimeout(resizeCharts,60);}
+}
+
+// ===== Launch / Stop =====
+function launch(){
+  if(isTr)return;isTr=true;
+  ['ret','evl','ploss','closs'].forEach(k=>{chartData[k]=[];histAll[k]=[];});
+  simStep=0;simRet=.01;simEvl=.01;simPloss=-.2;simCloss=1.5;simSPS=0;prg=0;lmi=0;
+  lastEp=0;
+  var _gal=document.getElementById('replayGallery');if(_gal)_gal.innerHTML='';
+  document.getElementById('replaySection').style.display='none';
+  document.getElementById('trainingDoneMsg').style.display='none';
+  document.getElementById('playbackSection').style.display='none';
+  document.getElementById('playbackVideo').src='';
+  document.getElementById('launchBtn').style.display='none';
+  const lb2=document.getElementById('launchBtn2');if(lb2)lb2.style.display='none';
+  document.getElementById('stopBtn').style.display='';
+  document.getElementById('stopBtn2').style.display='';
+  document.getElementById('sDot').classList.add('active');
+  document.getElementById('sTxt').textContent='Training';
+  document.getElementById('cfgBadge').textContent='Running';
+  document.getElementById('resBadge').textContent='LIVE';
+  document.getElementById('res-task-lbl').textContent=TK[cur].l;
+  addL('Launching training run...','if');
+  switchMainTab('results');
+  setTimeout(()=>{resizeCharts();startRecording();},120);
+  simInterval=setInterval(simTick,1350);
+}
+
+function stopT(){
+  if(!isTr)return;
+  clearInterval(simInterval);simInterval=null;isTr=false;
+  stopRecording();
+  document.getElementById('launchBtn').style.display='';
+  const lb2=document.getElementById('launchBtn2');if(lb2)lb2.style.display='';
+  document.getElementById('stopBtn').style.display='none';
+  document.getElementById('stopBtn2').style.display='none';
+  document.getElementById('sDot').classList.remove('active');
+  document.getElementById('sTxt').textContent='Stopped';
+  document.getElementById('cfgBadge').textContent='Stopped';
+  document.getElementById('resBadge').textContent='Done';
+  addL('Training stopped by user.','wn');
+}
+
+function finishSim(){
+  clearInterval(simInterval);simInterval=null;
+  stopRecording();
+  if(gc('recRep'))recordMatchClip('Final',simRet,99991);
+  document.getElementById('trainingDoneMsg').style.display='inline-flex';
+  addL('Training complete! Recording ready below.','ok');
+  ['pBar','pBar-r'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.width='100%';});
+  ['pLbl','pLbl-r'].forEach(id=>{const e=document.getElementById(id);if(e)e.textContent='Complete';});
+  isTr=false;
+  document.getElementById('launchBtn').style.display='';
+  const lb2=document.getElementById('launchBtn2');if(lb2)lb2.style.display='';
+  document.getElementById('stopBtn').style.display='none';
+  document.getElementById('stopBtn2').style.display='none';
+  document.getElementById('sDot').classList.remove('active');
+  document.getElementById('sTxt').textContent='Done';
+  document.getElementById('cfgBadge').textContent='Done';
+  document.getElementById('resBadge').textContent='Done';
+}
+
+// ===== simTick updated with dual progress bars =====
+function simTick(){
+  simStep+=Math.round(55+Math.random()*90);
+  simSPS=Math.round(100+Math.random()*75);
+  simRet=Math.min(simRet*(1+.024+Math.random()*.013)+(Math.random()-.35)*.004,1);
+  simEvl=Math.min(simEvl*(1+.017)+(Math.random()-.43)*.003,1);
+  simPloss+=-.013-Math.random()*.006+Math.random()*.004;
+  simCloss=Math.max(simCloss*(.988+Math.random()*.007)+(Math.random()-.5)*.04,.04);
+  chartData.ret.push(simRet);chartData.evl.push(simEvl);
+  chartData.ploss.push(simPloss);chartData.closs.push(simCloss);
+  histAll.ret.push(simRet);histAll.evl.push(simEvl);
+  histAll.ploss.push(simPloss);histAll.closs.push(simCloss);
+  if(chartData.ret.length>200)['ret','evl','ploss','closs'].forEach(k=>chartData[k].shift());
+  document.getElementById('ls-step').textContent=simStep.toLocaleString();
+  document.getElementById('ls-sps').textContent=simSPS;
+  document.getElementById('ls-ret').textContent=simRet.toFixed(4);
+  document.getElementById('ls-loss').textContent=simPloss.toFixed(4);
+  document.getElementById('resBadge').textContent='step '+simStep.toLocaleString();
+  const infMode=gc('infiniteRun');
+  const mxSt=parseInt(g('mss'))||200;
+  if(!infMode){
+    const eta=Math.max(0,mxSt-histAll.ret.length);
+    document.getElementById('ls-eta').textContent=eta>0?eta+'s':'Soon';
+    if(mxSt>0&&histAll.ret.length>=mxSt){finishSim();return;}
+  }else document.getElementById('ls-eta').textContent='∞';
+  refreshCharts();
+  maybeEpochClip();
+  prg=Math.min(prg+Math.random()*1.8,infMode?99.8:88);
+  const pct=Math.round(prg);
+  ['pBar','pBar-r'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.width=prg+'%';});
+  const lbl='∼'+pct+'% · step '+simStep;
+  ['pLbl','pLbl-r'].forEach(id=>{const e=document.getElementById(id);if(e)e.textContent=lbl;});
+  if(lmi<LM.length){addL(LM[lmi][1],LM[lmi][0]);lmi++;}
+}
+
+// ===== Playback =====
+function playbackAll(){
+  const vid=document.getElementById('playbackVideo');
+  if(vid.src&&vid.src!==location.href){
+    vid.currentTime=0;vid.play();
+    document.getElementById('playbackSection').style.display='flex';
+    return;
+  }
+  if(!histAll.ret.length){addL('No history yet — run training first.','wn');return;}
+  const snap=histAll.ret.map((_,i)=>({ret:histAll.ret[i],evl:histAll.evl[i],ploss:histAll.ploss[i],closs:histAll.closs[i]}));
+  let pi=0;
+  addL('Replaying '+snap.length+' steps...','if');
+  function frame(){
+    if(pi>=snap.length)return;
+    const sl=snap.slice(0,pi+1);
+    chartData.ret=sl.map(d=>d.ret);chartData.evl=sl.map(d=>d.evl);
+    chartData.ploss=sl.map(d=>d.ploss);chartData.closs=sl.map(d=>d.closs);
+    refreshCharts();pi++;
+    requestAnimationFrame(frame);
+  }
+  frame();
+}
+
+function addL(msg,cls){
+  ['logA','logA-r'].forEach(lid=>{
+    const la=document.getElementById(lid);
+    if(!la)return;
+    const ts=new Date().toTimeString().slice(0,8);
+    const s=document.createElement('span');
+    s.className='ll';
+    s.innerHTML='<span class="ts">['+ts+']</span> <span class="'+cls+'">'+msg+'</span>';
+    la.appendChild(s);
+    la.scrollTop=la.scrollHeight;
+  });
+}
+window.addEventListener('resize',()=>{if(document.getElementById('pane-results').classList.contains('active'))resizeCharts();});
+document.addEventListener('DOMContentLoaded',()=>{selT(document.querySelector('.tbtn.active'));});
+</script>
+</body>
+</html>
