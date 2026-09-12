@@ -267,6 +267,8 @@
         <div class="trow"><span class="tlbl">Auto-Test Every Epoch <span class="tip" data-tip="Runs a live simulation test rollout every N steps to visualize policy progress">?</span></span><label class="tog"><input type="checkbox" id="autoTest" checked onchange="upd()"><span class="slt"></span></label></div>
         <div class="fr"><div class="fl">Epoch Interval (steps)</div><input type="number" id="testInt" value="15" min="5" max="100" onchange="upd()"></div>
         <div class="fr"><div class="fl">Episode Length (s)</div><input type="number" id="testDur" value="6" min="3" max="20" onchange="upd()"></div>
+        <div class="fr"><div class="fl">Match Epochs</div><input type="number" id="testEpochs" value="1" min="1" max="25" onchange="upd()"></div>
+        <div class="trow"><span class="tlbl">&#8734; Real Match (unlimited) <span class="tip" data-tip="Never stop: re-kick after every goal and keep the score running like a real match">?</span></span><label class="tog"><input type="checkbox" id="testInf" onchange="upd()"><span class="slt"></span></label></div>
       </div>
       <div class="stit">&#128202; Experiment Tracking</div>
       <div class="card">
@@ -306,6 +308,7 @@
       </div>
       <div class="bgrp">
         <button class="btn bpri" id="launchBtn" onclick="launch()">&#128640; Launch Training</button>
+        <button class="btn bsec" id="contBtn" onclick="continueTraining()" title="Resume training from the current return (further training)">&#9195; Continue</button>
         <button class="btn bsec" onclick="cpyS()">&#128203; Copy</button>
         <button class="btn bsec" onclick="savS()">&#128190; Save .py</button>
         <button class="btn bdng" onclick="stopT()" id="stopBtn" style="display:none">&#9632; Stop</button>
@@ -320,6 +323,7 @@
     <div class="res-topbar">
       <h3>&#128202; Live Training Results &mdash; <span id="res-task-lbl" style="color:var(--accent-blue);font-weight:500">Walk Imitation</span></h3>
       <button class="btn bpri" id="launchBtn2" onclick="launch()" style="padding:6px 14px;font-size:.75rem">&#128640; Launch Training</button>
+      <button class="btn bsec" id="contBtn2" onclick="continueTraining()" style="padding:6px 12px;font-size:.75rem" title="Resume training from the current return (further training)">&#9195; Continue</button>
       <button class="btn bdng" onclick="stopT()" id="stopBtn2" style="padding:6px 12px;font-size:.75rem;display:none">&#9632; Stop</button>
       <button class="btn bsec" onclick="playbackAll()" style="padding:6px 12px;font-size:.75rem">&#9654;&#65039; Replay</button>
       <button class="btn bsec" onclick="switchMainTab('config')" style="padding:6px 12px;font-size:.75rem">&#9881;&#65039; Configure</button>
@@ -846,6 +850,67 @@ function drawFruitFlyTopDown(ctx, x, y, angle, wingPhase, color, size, legPhase,
   }
 }
 
+function epTagFor(task){
+  if(task !== 'football_vs') return '';
+  if(gc('testInf')) return ' · EP 1/∞';
+  const n = Math.max(1, Math.min(25, parseInt(g('testEpochs')) || 1));
+  return n > 1 ? ' · EP 1/' + n : '';
+}
+
+// (Re)sets the football kickoff geometry in place: ball center, teams in
+// formation, per-episode flags cleared. Score/episode counters are kept.
+function resetFootballKickoff(state, W, H){
+  const R = state.R;
+  const nTeam = state.nTeam || 1;
+  state.gx = W * 0.86;
+  state.gh = H * 0.38;
+  state.ball = {x: W * 0.46 + (R() - 0.5) * 40, y: H * 0.5 + (R() - 0.5) * 40, vx: 0, vy: 0, r: 8.5};
+  state.attackers = [];
+  for(let i = 0; i < nTeam; i++){
+    state.attackers.push({x: W * 0.16 - i * 36 + (R() - 0.5) * 24,
+      y: H * 0.5 + (i - (nTeam - 1) / 2) * 70 + (R() - 0.5) * 30,
+      angle: -Math.PI / 2, wing: R() * 6, leg: R() * 6, num: i + 1});
+  }
+  state.goalies = [];
+  for(let i = 0; i < nTeam; i++){
+    if(i === 0){
+      state.goalies.push({x: state.gx - 18, y: H * 0.5, vy: 0, wing: 0, leg: 0, num: 1, keeper: true, angle: -Math.PI / 2});
+    } else {
+      state.goalies.push({x: W * 0.70 + (i - 1) * 30 + (R() - 0.5) * 24,
+        y: H * 0.5 + (i - nTeam / 2) * 70 + (R() - 0.5) * 30,
+        angle: Math.PI / 2, wing: R() * 6, leg: R() * 6, num: i + 1, keeper: false});
+    }
+  }
+  state.attacker = state.attackers[0];
+  state.goalie = state.goalies[0];
+  state.trail = [];
+  state.kicked = false;
+  state.lastPass = null;
+  state.poss = null;
+  state.kickCd = 0;
+  state.stealCd = 0;
+  state.foulShown = false;
+  state.time = 0;
+  state.done = false;
+  state.tail = 0;
+  state.outcome = 'Active Run';
+}
+
+function nextFootballEpisode(state, W, H){
+  if(state.outcome === 'GOAL SCORED!') state.score.w++;
+  else if(state.outcome === 'EAST SCORES!') state.score.e++;
+  state.episode++;
+  resetFootballKickoff(state, W, H);
+  const hRes = document.getElementById('hudResult');
+  if(hRes) hRes.style.display = 'none';
+  const tEpochBadge = document.getElementById('testEpochBadge');
+  if(tEpochBadge){
+    const epTag = state.infinite ? ' · EP ' + state.episode + '/∞' : ' · EP ' + state.episode + '/' + state.epochsTotal;
+    tEpochBadge.textContent = state.label + ' · Skill: ' + state.skill.toFixed(2) + epTag;
+  }
+  addL('⚽ EP ' + state.episode + ' kickoff (W ' + state.score.w + ':' + state.score.e + ' E)', 'if');
+}
+
 function startTestRollout(seed, label, skill, pushHistory = true, nTeamOverride){
   if(testAnimId) cancelAnimationFrame(testAnimId);
   testRunning = true;
@@ -860,7 +925,7 @@ function startTestRollout(seed, label, skill, pushHistory = true, nTeamOverride)
   const tTaskBadge = document.getElementById('testTaskBadge');
   if(tTaskBadge) tTaskBadge.textContent = TK[task] ? TK[task].l : task;
   const tEpochBadge = document.getElementById('testEpochBadge');
-  if(tEpochBadge) tEpochBadge.textContent = label + ' · Skill: ' + skill.toFixed(2);
+  if(tEpochBadge) tEpochBadge.textContent = label + ' · Skill: ' + skill.toFixed(2) + epTagFor(task);
   const tTaskName = document.getElementById('tesTaskName');
   if(tTaskName) tTaskName.textContent = TK[task] ? TK[task].l : task;
   const tSkill = document.getElementById('tesSkill');
@@ -882,6 +947,7 @@ function startTestRollout(seed, label, skill, pushHistory = true, nTeamOverride)
     seed: seed,
     label: label,
     skill: skill,
+    live: !!pushHistory,
     time: 0,
     maxTime: maxDur,
     done: false,
@@ -892,34 +958,17 @@ function startTestRollout(seed, label, skill, pushHistory = true, nTeamOverride)
 
   // Task-specific initial geometry
   if(task === 'football_vs'){
-    state.gx = W * 0.86;
-    state.gh = H * 0.38;
-    state.ball = {x: W * 0.46 + (R() - 0.5) * 40, y: H * 0.5 + (R() - 0.5) * 40, vx: 0, vy: 0, r: 8.5};
     // Team size mirrors the env's n_per_team (Players Per Team selector).
     let nTeam = (typeof nTeamOverride === 'number') ? nTeamOverride : (parseInt(g('p_npt')) || 1);
     nTeam = Math.max(1, Math.min(3, nTeam));
     state.nTeam = nTeam;
-    state.attackers = [];
-    for(let i = 0; i < nTeam; i++){
-      state.attackers.push({x: W * 0.16 - i * 36 + (R() - 0.5) * 24,
-        y: H * 0.5 + (i - (nTeam - 1) / 2) * 70 + (R() - 0.5) * 30,
-        angle: -Math.PI / 2, wing: R() * 6, leg: R() * 6, num: i + 1});
-    }
-    state.goalies = [];
-    for(let i = 0; i < nTeam; i++){
-      if(i === 0){
-        state.goalies.push({x: state.gx - 18, y: H * 0.5, vy: 0, wing: 0, leg: 0, num: 1, keeper: true, angle: -Math.PI / 2});
-      } else {
-        state.goalies.push({x: W * 0.70 + (i - 1) * 30 + (R() - 0.5) * 24,
-          y: H * 0.5 + (i - nTeam / 2) * 70 + (R() - 0.5) * 30,
-          angle: Math.PI / 2, wing: R() * 6, leg: R() * 6, num: i + 1, keeper: false});
-      }
-    }
-    state.attacker = state.attackers[0];
-    state.goalie = state.goalies[0];
-    state.trail = [];
-    state.kicked = false;
-    state.lastPass = null;
+    state.score = {w: 0, e: 0};
+    state.episode = 1;
+    state.matchTime = 0;
+    let epochsTotal = parseInt(g('testEpochs')) || 1;
+    state.epochsTotal = Math.max(1, Math.min(25, epochsTotal));
+    state.infinite = !!gc('testInf');
+    resetFootballKickoff(state, W, H);
   } else if(task === 'flight_imitation'){
     state.fly = {x: W * 0.2, y: H * 0.5, roll: 0, pitch: 0, wing: 0};
     state.target = {x: W * 0.2, y: H * 0.5};
@@ -959,13 +1008,32 @@ function startTestRollout(seed, label, skill, pushHistory = true, nTeamOverride)
     const dt = Math.min((now - lastTs) / 1000, 0.05) * testSpeed;
     lastTs = now;
 
+    // Live model feed: while training runs, the active (non-replay) match
+    // adopts each new return in the background and keeps playing.
+    if(state.live && isTr && typeof simRet === 'number'){
+      const ns = Math.max(0.01, Math.min(1, simRet));
+      if(ns !== state.skill){
+        state.skill = ns;
+        const tSkill = document.getElementById('tesSkill');
+        if(tSkill) tSkill.textContent = ns.toFixed(4);
+      }
+    }
+
     if(!testPaused && !state.done){
       state.time += dt;
+      state.matchTime = (state.matchTime || 0) + dt;
       updateTestPhysics(state, dt, W, H);
-      if(state.time >= state.maxTime && !state.done){
+      if(state.time >= state.maxTime && !state.done && (!state.infinite || !state.kicked)){
         state.done = true;
         if(state.task === 'football_vs' && !state.kicked) state.outcome = 'Time Out';
+        else if(state.task === 'football_vs' && state.outcome === 'Active Run') state.outcome = 'FULL TIME';
       }
+    }
+    // Continuous match: celebrate the outcome briefly, then re-kick.
+    if(state.task === 'football_vs' && state.done && !testPaused &&
+       (state.infinite || state.episode < state.epochsTotal)){
+      state.tail = (state.tail || 0) + dt;
+      if(state.tail >= 1.2) nextFootballEpisode(state, W, H);
     } else if(state.done && !testPaused){
       state.tail = (state.tail || 0) + dt;
     }
@@ -973,7 +1041,15 @@ function startTestRollout(seed, label, skill, pushHistory = true, nTeamOverride)
     renderTestEnvironment(ctx, W, H, state);
 
     const hudT = document.getElementById('hudTime');
-    if(hudT) hudT.textContent = 't=' + Math.min(state.time, state.maxTime).toFixed(1) + 's / ' + state.maxTime.toFixed(1) + 's';
+    if(hudT){
+      let hudTxt = 't=' + state.time.toFixed(1) + 's';
+      hudTxt += state.infinite ? ' · ∞' : ' / ' + state.maxTime.toFixed(1) + 's';
+      if(state.task === 'football_vs' && state.score){
+        const epTag = state.infinite ? state.episode + '/∞' : state.episode + '/' + state.epochsTotal;
+        hudTxt = 'W ' + state.score.w + ':' + state.score.e + ' E · EP ' + epTag + ' · ' + hudTxt;
+      }
+      hudT.textContent = hudTxt;
+    }
     const outEl = document.getElementById('tesOutcome');
     if(outEl) outEl.textContent = state.outcome;
 
@@ -999,6 +1075,8 @@ function updateTestPhysics(state, dt, W, H){
     // --- West team: closest two chase, rest make support runs ahead ---
     function westKick(a){
       state.kicked = true;
+      state.kickCd = 0.6;
+      state.poss = 'west';
       // Pass to the most open mate (far from defenders, kicker under
       // pressure), or shoot at the east goal.
       let pressD = 1e9;
@@ -1081,11 +1159,20 @@ function updateTestPhysics(state, dt, W, H){
       }
     });
 
-    // --- Keeper tracks the ball along the east line ---
+    // --- Keeper: guards the posts, steps out to meet danger ---
     gk.wing += dt * 30;
     gk.leg += dt * 8;
-    const goalieTargetY = Math.max(H*0.5 - state.gh*0.4, Math.min(H*0.5 + state.gh*0.4, b.y));
-    gk.y += (goalieTargetY - gk.y) * Math.min(1, dt * (3 + (1 - skill) * 3));
+    const lineX = state.gx - 18;
+    // 0 when the ball is far from goal, 1 when it reaches the line.
+    const danger = Math.max(0, Math.min(1, (b.x - (state.gx - 200)) / 160));
+    // Advance out to cut the angle, retreat when the ball is cleared.
+    const outX = lineX - danger * (25 + skill * 20);
+    gk.x += (outX - gk.x) * Math.min(1, dt * (2 + skill * 3));
+    // Track the ball, shading toward the near post as danger grows.
+    const nearPostY = H * 0.5 + (b.y >= H * 0.5 ? 1 : -1) * state.gh * 0.38;
+    let goalieTargetY = b.y + (nearPostY - b.y) * 0.3 * danger;
+    goalieTargetY = Math.max(H*0.5 - state.gh*0.45, Math.min(H*0.5 + state.gh*0.45, goalieTargetY));
+    gk.y += (goalieTargetY - gk.y) * Math.min(1, dt * (3 + (1 - skill) * 3 + danger * 1.5));
 
     // --- East defenders: chase the ball, counter toward the west goal ---
     state.goalies.forEach(function(d, di){
@@ -1103,6 +1190,8 @@ function updateTestPhysics(state, dt, W, H){
         d.y += Math.sin(d.angle + Math.PI/2) * speed * dt;
       } else if(!state.kicked || Math.abs(b.vx) < 60){
         state.kicked = true;
+        state.kickCd = 0.6;
+        state.poss = 'east';
         const aimError = (1 - skill) * (R() - 0.5) * 70;
         const targetY = H * 0.5 + aimError;
         const cAng = Math.atan2(targetY - b.y, (W - state.gx) - b.x);
@@ -1112,14 +1201,64 @@ function updateTestPhysics(state, dt, W, H){
       }
     });
 
+    // --- Out-of-play foul: flies leaving the pitch are reset inside ---
+    [state.attackers, state.goalies].forEach(function(team){
+      team.forEach(function(f){
+        if(f.x < 22 || f.x > W - 22 || f.y < 28 || f.y > H - 28){
+          if(!state.foulShown){
+            setHudResult('FOUL · OUT OF PLAY', '#ef4444');
+            state.foulShown = true;
+          }
+          f.x = Math.max(24, Math.min(W - 24, f.x));
+          f.y = Math.max(30, Math.min(H - 30, f.y));
+        }
+      });
+    });
+
     // Ball physics
     b.x += b.vx * dt;
     b.y += b.vy * dt;
     b.vx *= 0.985;
     b.vy *= 0.985;
+    state.kickCd = Math.max(0, (state.kickCd || 0) - dt);
+    state.stealCd = Math.max(0, (state.stealCd || 0) - dt);
 
-    // Pitch bounce
+    // In-flight steals: nearest fly of either side near the moving ball
+    // knocks it back toward its own attacking goal (no steal right after
+    // a kick — kickCd protects the kicker's own touch).
+    const ballSpd = Math.hypot(b.vx, b.vy);
+    if(!state.done && ballSpd > 90 && state.kickCd <= 0 && state.stealCd <= 0){
+      let thief = null, thiefSide = null, thiefD = 1e9;
+      state.attackers.forEach(function(a){
+        const dd = Math.hypot(b.x - a.x, b.y - a.y);
+        if(dd < thiefD){ thiefD = dd; thief = a; thiefSide = 'west'; }
+      });
+      state.goalies.forEach(function(d){
+        const dd = Math.hypot(b.x - d.x, b.y - d.y);
+        if(dd < thiefD){ thiefD = dd; thief = d; thiefSide = 'east'; }
+      });
+      if(thief && thiefD <= 22 && R() < 0.35 + 0.35 * skill){
+        // Knock the ball sideways/back toward the thief's attacking goal.
+        // The keeper punches sideways instead of toward its own net.
+        const backX = (thiefSide === 'west') ? state.gx : (W - state.gx);
+        const sTargY = thief.keeper ? (b.y >= H * 0.5 ? H - 20 : 20)
+          : H * 0.5 + (R() - 0.5) * state.gh;
+        const sTargX = thief.keeper ? b.x : backX;
+        const sAng = Math.atan2(sTargY - b.y, sTargX - b.x);
+        const sSpd = 140 + skill * 100;
+        b.vx = Math.cos(sAng) * sSpd;
+        b.vy = Math.sin(sAng) * sSpd;
+        state.kicked = true;
+        state.kickCd = 0.6;
+        state.poss = thiefSide;
+        state.stealCd = 0.8;
+        setHudResult('STEAL ' + (thiefSide === 'west' ? 'W' : 'E') + (thief.num || ''), '#f472b6');
+      }
+    }
+
+    // Pitch bounce (long sides: throw-in, ball stays in play)
     if(b.y < 28 || b.y > H - 28){
+      if(Math.hypot(b.vx, b.vy) > 150) setHudResult('THROW-IN', '#94a3b8');
       b.vy = -b.vy * 0.75;
       b.y = Math.max(29, Math.min(H - 29, b.y));
     }
@@ -1127,7 +1266,7 @@ function updateTestPhysics(state, dt, W, H){
     // Goal detection east (keeper = goalies[0])
     if(!state.done && b.x >= state.gx - 12){
       if(Math.abs(b.y - H*0.5) <= state.gh * 0.5){
-        if(Math.abs(b.y - gk.y) < 22 && b.x < state.gx + 5){
+        if(Math.abs(b.y - gk.y) < 18 && b.x < state.gx + 5){
           state.outcome = 'SAVED BY GOALIE';
           state.done = true;
           b.vx = -b.vx * 0.35;
@@ -1360,6 +1499,14 @@ function renderTestEnvironment(ctx, W, H, state){
     ctx.beginPath();
     ctx.arc(b.x, b.y, b.r * 0.42, 0, Math.PI * 2);
     ctx.fill();
+    // Possession ring: who owns the ball right now.
+    if(state.poss === 'west' || state.poss === 'east'){
+      ctx.strokeStyle = state.poss === 'west' ? '#fbbf24' : '#38bdf8';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(b.x, b.y, b.r + 4, 0, Math.PI * 2);
+      ctx.stroke();
+    }
 
     // East team flies (blue, keeper first) with jersey numbers
     state.goalies.forEach(function(g){
@@ -1625,16 +1772,29 @@ function switchMainTab(tab){
   }
 }
 
-// ===== Launch / Stop =====
-function launch(){
+// ===== Launch / Stop / Continue =====
+function launch(){ beginTraining(false); }
+
+function continueTraining(){ beginTraining(true); }
+
+function beginTraining(resume){
   if(isTr)return;isTr=true;
-  ['ret','evl','ploss','closs'].forEach(k=>{chartData[k]=[];histAll[k]=[];});
-  simTask=cur;
-  const P0=TASK_SIM[simTask]||TASK_SIM.walk_imitation;
-  simStep=0;simRet=P0.ret0;simEvl=P0.ret0;simPloss=-.2;simCloss=1.5;simSPS=0;prg=0;lmi=0;
+  const P0=TASK_SIM[cur]||TASK_SIM.walk_imitation;
+  if(!resume){
+    ['ret','evl','ploss','closs'].forEach(k=>{chartData[k]=[];histAll[k]=[];});
+    simTask=cur;
+    simStep=0;simRet=P0.ret0;simEvl=P0.ret0;simPloss=-.2;simCloss=1.5;simSPS=0;prg=0;lmi=0;
+  } else {
+    // Further training: pick up where the last run left off, never above
+    // the newly selected task's asymptote.
+    simTask=cur;
+    simRet=Math.min(simRet,P0.retMax);simEvl=Math.min(simEvl,P0.retMax*.96);
+  }
   document.getElementById('trainingDoneMsg').style.display='none';
   document.getElementById('launchBtn').style.display='none';
   const lb2=document.getElementById('launchBtn2');if(lb2)lb2.style.display='none';
+  document.getElementById('contBtn').style.display='none';
+  const cb2=document.getElementById('contBtn2');if(cb2)cb2.style.display='none';
   document.getElementById('stopBtn').style.display='';
   document.getElementById('stopBtn2').style.display='';
   document.getElementById('sDot').classList.add('active');
@@ -1642,7 +1802,12 @@ function launch(){
   document.getElementById('cfgBadge').textContent='Running';
   document.getElementById('resBadge').textContent='LIVE';
   document.getElementById('res-task-lbl').textContent=TK[cur].l;
-  addL('Launching training run ('+TK[cur].l+')...','if');
+  if(!resume){
+    addL('Launching training run ('+TK[cur].l+')...','if');
+  } else {
+    const ck=g('ckLoad');
+    addL('⏵ Continuing training ('+TK[cur].l+') from return '+simRet.toFixed(4)+(ck?' · checkpoint: '+ck:' · tip: fill "Load From" + Save .py for a real resume run'),'ok');
+  }
   switchMainTab('results');
   setTimeout(resizeCharts,120);
   simInterval=setInterval(simTick,1350);
@@ -1653,6 +1818,8 @@ function stopT(){
   clearInterval(simInterval);simInterval=null;isTr=false;
   document.getElementById('launchBtn').style.display='';
   const lb2=document.getElementById('launchBtn2');if(lb2)lb2.style.display='';
+  document.getElementById('contBtn').style.display='';
+  const cb2=document.getElementById('contBtn2');if(cb2)cb2.style.display='';
   document.getElementById('stopBtn').style.display='none';
   document.getElementById('stopBtn2').style.display='none';
   document.getElementById('sDot').classList.remove('active');
@@ -1671,6 +1838,8 @@ function finishSim(){
   isTr=false;
   document.getElementById('launchBtn').style.display='';
   const lb2=document.getElementById('launchBtn2');if(lb2)lb2.style.display='';
+  document.getElementById('contBtn').style.display='';
+  const cb2=document.getElementById('contBtn2');if(cb2)cb2.style.display='';
   document.getElementById('stopBtn').style.display='none';
   document.getElementById('stopBtn2').style.display='none';
   document.getElementById('sDot').classList.remove('active');
@@ -1722,9 +1891,17 @@ function simTick(){
     const testInterval = parseInt(g('testInt')) || 15;
     if(histAll.ret.length > 0 && histAll.ret.length % testInterval === 0){
       const epochNum = Math.floor(histAll.ret.length / testInterval);
-      const epochSeed = 2000 + epochNum * 149 + (Date.now() % 500);
-      runNewTestRollout(epochSeed, 'Epoch ' + epochNum + ' Eval', simRet);
-      addL('▶ Auto-eval test rollout triggered for Epoch ' + epochNum + ' (return: ' + simRet.toFixed(3) + ')', 'if');
+      // A live football match that keeps running adopts the new model in
+      // place instead of being replaced by a fresh rollout.
+      const liveBall = activeTestState && activeTestState.task === 'football_vs' && activeTestState.live &&
+        (!activeTestState.done || activeTestState.infinite || activeTestState.episode < activeTestState.epochsTotal);
+      if(liveBall){
+        addL('▶ Epoch ' + epochNum + ' model adopted live by the running match (return: ' + simRet.toFixed(3) + ')', 'if');
+      } else {
+        const epochSeed = 2000 + epochNum * 149 + (Date.now() % 500);
+        runNewTestRollout(epochSeed, 'Epoch ' + epochNum + ' Eval', simRet);
+        addL('▶ Auto-eval test rollout triggered for Epoch ' + epochNum + ' (return: ' + simRet.toFixed(3) + ')', 'if');
+      }
     }
   }
 }

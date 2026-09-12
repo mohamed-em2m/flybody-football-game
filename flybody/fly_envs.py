@@ -383,7 +383,8 @@ def football_vs(
         random_state: Random state for reproducibility.
         **task_kwargs: Forwarded to FootballVs (goalie_policy,
             attacker_spawn, goalie_spawn, goal_bonus, pass_bonus,
-            shot_bonus, interception_bonus, save_bonus, ...).
+            shot_bonus, interception_bonus, save_bonus,
+            out_of_bounds_penalty, ...).
 
     Returns:
         Environment for team fly football.

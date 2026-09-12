@@ -220,3 +220,36 @@ def test_pass_and_shot_events():
     # Holding longer must not pay the pass again (no farming).
     task.before_step(physics, zero, rs)
     assert task._pending_bonus["west"] == 0.0
+
+
+def test_out_of_bounds_penalty():
+    env = football_vs(opponent_mode="static", time_limit=10.0)
+    env.reset()
+    task = env.task
+    physics = env.physics
+    spawn_z = float(task._attacker.upright_pose.xpos[2])
+    # Baseline with everyone on the pitch.
+    base = task.get_side_rewards(physics)
+    # Teleport the west attacker far outside the pitch.
+    hx = task._arena.field_length / 2.0 + task._out_of_bounds_margin + 0.5
+    physics.bind(task._root_joints["attacker"]).qpos = np.array(
+        [hx, 0.0, spawn_z, 1, 0, 0, 0]
+    )
+    sides = task.get_side_rewards(physics)
+    assert task._out_of_bounds_frac(physics) == {"west": 1.0, "east": 0.0}
+    assert sides["west"] < base["west"] - 0.5, (base, sides)
+    assert sides["east"] == base["east"]
+    # East pays too when its own fly leaves the pitch.
+    hy = task._arena.field_width / 2.0 + task._out_of_bounds_margin + 0.5
+    physics.bind(task._root_joints["goalie"]).qpos = np.array(
+        [0.0, hy, spawn_z, 1, 0, 0, 0]
+    )
+    sides2 = task.get_side_rewards(physics)
+    assert sides2["east"] < base["east"] - 0.5, (base, sides2)
+    assert sides2["west"] == sides["west"]
+    # Legacy scalar reward carries the west penalty as well.
+    r_oob = float(task.get_reward(physics))
+    physics.bind(task._root_joints["attacker"]).qpos = np.array(
+        [0.0, 0.0, spawn_z, 1, 0, 0, 0]
+    )
+    assert float(task.get_reward(physics)) > r_oob + 0.5

@@ -32,6 +32,9 @@ Rewards:
     pay per-side bonuses and are exposed as a ``last_event`` one-hot
     observable plus a ``possession`` one-hot observable, so passing and
     shooting skills can emerge through training.
+  - Any fly that leaves the pitch (+ margin) costs its own side
+    ``out_of_bounds_penalty`` per step (scaled by the fraction of the side
+    that is out), so wandering off the match is always a bad deal.
 """
 
 import numpy as np
@@ -126,6 +129,8 @@ class FootballVs(composer.Task):
         possession_min_hold: int = 15,
         interception_cooldown: int = 50,
         event_hold: int = 25,
+        out_of_bounds_penalty: float = 1.0,
+        out_of_bounds_margin: float = 0.2,
         team_colors: bool | None = None,
         extended_obs: bool = False,
         observables_options: dict | None = None,
@@ -179,6 +184,10 @@ class FootballVs(composer.Task):
                 before a takeaway pays interception_bonus (anti-farming).
             interception_cooldown: Steps between interception bonuses.
             event_hold: Steps a game event stays visible in last_event.
+            out_of_bounds_penalty: Penalty per step for the fraction of a
+                side's flies outside the pitch (+ out_of_bounds_margin).
+            out_of_bounds_margin: Extra distance (cm) past the pitch lines
+                before a fly counts as out of bounds.
             team_colors: Tint thoraxes red (west) / blue (east). Defaults
                 to True when n_per_team > 1, False otherwise.
             extended_obs: Add ball_to_west_goal, possession, last_event and
@@ -223,6 +232,8 @@ class FootballVs(composer.Task):
         self._possession_min_hold = possession_min_hold
         self._interception_cooldown = interception_cooldown
         self._event_hold = event_hold
+        self._out_of_bounds_penalty = out_of_bounds_penalty
+        self._out_of_bounds_margin = out_of_bounds_margin
 
         self._arena = arena
         self._control_dt = _WALK_CONTROL_TIMESTEP
@@ -778,6 +789,20 @@ class FootballVs(composer.Task):
         # the current velocity and no kick would ever be detected).
         self._prev_ball_vel = np.asarray(ball_vel).copy()
 
+    def _out_of_bounds_frac(self, physics):
+        """Fraction of each side's flies outside the pitch (+ margin)."""
+        hx = self._arena.field_length / 2.0 + self._out_of_bounds_margin
+        hy = self._arena.field_width / 2.0 + self._out_of_bounds_margin
+        out = {}
+        for side, flies in self._flies.items():
+            n_out = 0
+            for w in flies:
+                pos = np.asarray(self._walker_pos(physics, w))
+                if abs(pos[0]) > hx or abs(pos[1]) > hy:
+                    n_out += 1
+            out[side] = n_out / max(1, len(flies))
+        return out
+
     def _side_dense(self, physics, side):
         """Five shaped factors for one side (mirrors legacy west math)."""
         own = self._flies[side]
@@ -832,6 +857,9 @@ class FootballVs(composer.Task):
         )
         sparse = float(np.sum(factors[5:])) if len(factors) > 5 else 0.0
         sparse += float(self._pending_bonus["west"])
+        sparse -= (
+            self._out_of_bounds_penalty * self._out_of_bounds_frac(physics)["west"]
+        )
         self._should_terminate = self.check_termination(physics)
         return dense + sparse
 
@@ -859,6 +887,9 @@ class FootballVs(composer.Task):
                 if self._scored_east:
                     sparse -= self._concede_penalty
             sparse += float(self._pending_bonus[side])
+            sparse -= (
+                self._out_of_bounds_penalty * self._out_of_bounds_frac(physics)[side]
+            )
             out[side] = dense + sparse
         self._should_terminate = self.check_termination(physics)
         return out
