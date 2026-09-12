@@ -261,12 +261,12 @@
         <div class="fr"><div class="fl">Max to Keep <span class="tip" data-tip="None=keep all">?</span></div><input type="number" id="ckMax" value="1" min="1" onchange="upd()"></div>
         <div class="trow"><span class="tlbl">Save CSV Data</span><label class="tog"><input type="checkbox" id="saveCSV" onchange="upd()"><span class="slt"></span></label></div>
       </div>
-      <div class="stit">&#127916; Replay Videos</div>
+      <div class="stit">&#127916; Live Environment Test Rollouts</div>
       <div class="card">
-        <div class="card-title">Match Replays</div>
-        <div class="trow"><span class="tlbl">Record Epoch Replays <span class="tip" data-tip="Auto-generate a 2D match video every few epochs, plus a final video when training completes">?</span></span><label class="tog"><input type="checkbox" id="recRep" checked><span class="slt"></span></label></div>
-        <div class="fr"><div class="fl">Ticks Per Epoch</div><input type="number" id="epLen" value="20" min="5" max="200"></div>
-        <div class="fr"><div class="fl">Replay Every N Epochs</div><input type="number" id="repEvery" value="2" min="1" max="20"></div>
+        <div class="card-title">Epoch Test Settings</div>
+        <div class="trow"><span class="tlbl">Auto-Test Every Epoch <span class="tip" data-tip="Runs a live simulation test rollout every N steps to visualize policy progress">?</span></span><label class="tog"><input type="checkbox" id="autoTest" checked onchange="upd()"><span class="slt"></span></label></div>
+        <div class="fr"><div class="fl">Epoch Interval (steps)</div><input type="number" id="testInt" value="15" min="5" max="100" onchange="upd()"></div>
+        <div class="fr"><div class="fl">Episode Length (s)</div><input type="number" id="testDur" value="6" min="3" max="20" onchange="upd()"></div>
       </div>
       <div class="stit">&#128202; Experiment Tracking</div>
       <div class="card">
@@ -295,7 +295,10 @@
         <div id="pane-s"><div class="sblk" id="sPrv"></div></div>
         <div id="pane-c" style="display:none"><div class="sblk" id="cPrv"></div></div>
         <div id="pane-e" style="display:none"><div class="sblk" id="ePrv"></div></div>
-        <div style="font-size:.7rem;color:var(--text-secondary);margin-bottom:5px;font-weight:600">Training Log</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
+          <span style="font-size:.7rem;color:var(--text-secondary);font-weight:600">Training Log</span>
+          <label style="display:flex;align-items:center;gap:5px;font-size:.64rem;color:var(--text-muted);cursor:pointer" title="Follow new messages automatically as they arrive"><input type="checkbox" id="logAuto" checked onchange="setLogAuto(this)" style="accent-color:#5b7fff;cursor:pointer;margin:0">Auto-scroll</label>
+        </div>
         <div class="loga" id="logA"><span class="ll"><span class="ts">[00:00]</span> <span class="if">INFO</span> FlyBody RL Trainer ready. Configure and click Launch.</span></div>
         <div style="margin-top:12px;font-size:.68rem;color:var(--text-muted);margin-bottom:4px">Progress</div>
         <div class="pwrap"><div class="pbar" id="pBar"></div></div>
@@ -343,30 +346,80 @@
         <div class="res-side-lbl">Progress</div>
         <div class="pwrap"><div class="pbar" id="pBar-r"></div></div>
         <div style="font-size:.64rem;color:var(--text-muted);text-align:right;margin-top:2px" id="pLbl-r">Not started</div>
-        <div class="res-side-lbl" style="margin-top:4px">Training Log</div>
+        <div class="res-side-lbl" style="margin-top:4px;display:flex;align-items:center;justify-content:space-between"><span>Training Log</span><label style="display:flex;align-items:center;gap:5px;font-size:.6rem;font-weight:400;letter-spacing:0;text-transform:none;cursor:pointer" title="Follow new messages automatically as they arrive"><input type="checkbox" id="logAutoR" checked onchange="setLogAuto(this)" style="accent-color:#5b7fff;cursor:pointer;margin:0">Auto-scroll</label></div>
         <div class="loga-r" id="logA-r"><span class="ll"><span class="ts">[00:00]</span> <span class="if">INFO</span> FlyBody RL Trainer ready.</span></div>
       </div>
     </div>
-    <!-- Epoch match replays -->
+    <!-- Live Environment Policy Test Viewport -->
     <style>
-    .rp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;margin-top:8px}
-    .rp-card{background:#161928;border:1px solid #2a3050;border-radius:11px;padding:10px}
-    .rp-card video{width:100%;border-radius:8px;background:#000;max-height:210px}
-    .rp-lbl{font-size:.74rem;font-weight:600;margin-bottom:6px}
-    .rp-sub{font-size:.66rem;color:#8894b8;margin-top:6px;display:flex;justify-content:space-between;align-items:center}
-    .rp-dl{color:#5b7fff;font-size:.68rem;text-decoration:none}
-    .rp-goal{color:#22c55e;font-weight:700}
-    .rp-miss{color:#f59e0b;font-weight:700}
-    .rp-empty{font-size:.72rem;color:#8894b8;padding:4px 2px;grid-column:1/-1}
+    .test-env-sect{background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:14px 18px 18px;margin:14px 20px 20px;display:flex;flex-direction:column;gap:12px}
+    .test-env-hdr{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}
+    .test-env-title{display:flex;align-items:center;gap:10px;font-size:.82rem;font-weight:700;color:var(--text-primary)}
+    .test-env-actions{display:flex;gap:8px;align-items:center}
+    .test-env-body{display:grid;grid-template-columns:1fr 250px;gap:14px;align-items:stretch}
+    @media(max-width:980px){.test-env-body{grid-template-columns:1fr}}
+    .test-canvas-wrap{position:relative;background:#06080e;border:1px solid var(--border);border-radius:10px;overflow:hidden;display:flex;align-items:center;justify-content:center;aspect-ratio:16/9;max-height:360px}
+    .test-canvas-wrap canvas{width:100%;height:100%;display:block}
+    .test-overlay-hud{position:absolute;top:10px;left:12px;background:rgba(10,12,20,.78);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:4px 10px;font-size:.68rem;font-family:'JetBrains Mono',monospace;color:var(--text-secondary);pointer-events:none;display:flex;gap:8px;align-items:center}
+    .test-hud-badge{font-weight:700;padding:1px 6px;border-radius:4px;font-size:.62rem}
+    .test-env-side{display:flex;flex-direction:column;background:var(--bg-panel);border:1px solid var(--border);border-radius:10px;padding:12px;gap:10px;max-height:360px}
+    .tes-hdr{font-size:.7rem;font-weight:700;color:var(--text-secondary);letter-spacing:.02em;text-transform:uppercase;display:flex;justify-content:space-between;align-items:center}
+    .tes-list{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:6px;padding-right:2px}
+    .tes-item{background:var(--bg-card);border:1px solid var(--border);border-radius:7px;padding:7px 9px;cursor:pointer;transition:all .15s}
+    .tes-item:hover{border-color:var(--accent-blue);background:rgba(91,127,255,.08)}
+    .tes-item.active{border-color:var(--accent-blue);background:rgba(91,127,255,.16)}
+    .tes-ep{font-size:.7rem;font-weight:600;color:var(--text-primary);display:flex;justify-content:space-between}
+    .tes-ret{font-size:.62rem;color:var(--text-muted);font-family:'JetBrains Mono',monospace;margin-top:2px}
+    .tes-info{display:flex;flex-direction:column;gap:5px;padding-top:8px;border-top:1px solid var(--border)}
+    .tes-stat{display:flex;justify-content:space-between;font-size:.66rem}
+    .tes-k{color:var(--text-muted)}
+    .tes-v{font-family:'JetBrains Mono',monospace;color:var(--text-primary);font-weight:600}
     </style>
-    <div class="pbk-sect" id="replaySection" style="display:flex">
-      <div class="pbk-lbl">&#9917; Epoch Match Replays &mdash; watch the policy improve
-        <button class="btn bpri" onclick="rerunTestClip()" style="padding:4px 12px;font-size:.7rem" title="Render a fresh test match at the best return seen so far (new random seed each click)">&#8635; Re-run test</button>
-        <label class="btn bsec" style="padding:4px 12px;font-size:.7rem;cursor:pointer" title="Load real rollout videos (mp4/webm) rendered by python -m scripts.rollout_football_video">&#11014; Load real video<input id="realVidInput" type="file" accept="video/*,.mp4,.webm" multiple hidden onchange="uploadRealVideos(this)"></label>
+    <div class="test-env-sect" id="testEnvSection">
+      <div class="test-env-hdr">
+        <div class="test-env-title">
+          <span>&#129432; Live Environment Test Rollout</span>
+          <span class="tag tblu" id="testTaskBadge">Walk Imitation</span>
+          <span class="tag tgrn" id="testEpochBadge">Ready · Skill: 0.01</span>
+        </div>
+        <div class="test-env-actions">
+          <button class="btn bpri" id="runTestBtn" onclick="runNewTestRollout()" style="padding:6px 14px;font-size:.74rem;font-weight:700" title="Run a new test rollout simulation">&#9654; Run Test Again</button>
+          <button class="btn bsec" id="anotherTrialBtn" onclick="runAnotherTrial()" style="padding:6px 12px;font-size:.74rem" title="Run another trial with different random seed">&#127922; Another Trial</button>
+          <button class="btn bsec" onclick="toggleTestPause()" id="pauseTestBtn" style="padding:6px 12px;font-size:.74rem">&#10074;&#10074; Pause</button>
+          <select id="testSpeedSel" onchange="setTestSpeed(this.value)" style="background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:.72rem">
+            <option value="1" selected>1.0x Speed</option>
+            <option value="1.5">1.5x Speed</option>
+            <option value="2">2.0x Turbo</option>
+            <option value="0.5">0.5x Slow</option>
+          </select>
+        </div>
       </div>
-      <div class="rp-grid" id="replayGallery"><div class="rp-empty">No replays yet &mdash; launch training, click Re-run test, or load a real video.</div></div>
+      <div class="test-env-body">
+        <div class="test-canvas-wrap">
+          <canvas id="testEnvCanvas" width="760" height="380"></canvas>
+          <div class="test-overlay-hud">
+            <span id="hudTime">t=0.0s</span>
+            <span>&middot;</span>
+            <span id="hudStatus">Ready</span>
+            <span class="test-hud-badge" id="hudResult" style="display:none"></span>
+          </div>
+        </div>
+        <div class="test-env-side">
+          <div class="tes-hdr"><span>Test Rollouts History</span><span id="tesCount">1 run</span></div>
+          <div class="tes-list" id="testHistoryList">
+            <div class="tes-item active" onclick="replayHistoryItem(0)">
+              <div class="tes-ep"><span>Initial State</span><span style="color:var(--accent-blue)">#1</span></div>
+              <div class="tes-ret">Return: 0.01 &middot; Fresh seed</div>
+            </div>
+          </div>
+          <div class="tes-info">
+            <div class="tes-stat"><span class="tes-k">Active Env</span><span class="tes-v" id="tesTaskName">Walk Imitation</span></div>
+            <div class="tes-stat"><span class="tes-k">Current Return</span><span class="tes-v" id="tesSkill">0.0100</span></div>
+            <div class="tes-stat"><span class="tes-k">Last Outcome</span><span class="tes-v" id="tesOutcome">Ready</span></div>
+          </div>
+        </div>
+      </div>
     </div>
-    <canvas id="repCanvas" width="640" height="400" style="position:fixed;left:-9999px;top:-9999px;pointer-events:none;"></canvas>
   </div><!-- /pane-results -->
 </div>
 <script>
@@ -385,7 +438,24 @@ const gc=id=>{const e=document.getElementById(id);return e?e.checked:false;};
 const py=v=>v?'True':'False';
 // Update a slider label: sr(sliderEl, labelId, decimals)
 function sr(el,lid,dec){const lb=document.getElementById(lid);if(lb)lb.textContent=parseFloat(el.value).toFixed(dec==null?0:dec);}
-function selT(b){document.querySelectorAll('.tbtn').forEach(x=>x.classList.remove('active'));b.classList.add('active');cur=b.dataset.task;const t=TK[cur];document.getElementById('tDesc').innerHTML=t.d;document.getElementById('tPrm').innerHTML=t.p;document.getElementById('mTag').textContent=t.l;document.getElementById('mTag').className='tag '+t.c;upd();}
+function selT(b){
+  document.querySelectorAll('.tbtn').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  cur=b.dataset.task;
+  const t=TK[cur];
+  document.getElementById('tDesc').innerHTML=t.d;
+  document.getElementById('tPrm').innerHTML=t.p;
+  document.getElementById('mTag').textContent=t.l;
+  document.getElementById('mTag').className='tag '+t.c;
+  const rTaskLbl = document.getElementById('res-task-lbl');
+  if(rTaskLbl) rTaskLbl.textContent = t.l;
+  upd();
+  if(document.getElementById('testTaskBadge')){
+    document.getElementById('testTaskBadge').textContent = t.l;
+    document.getElementById('tesTaskName').textContent = t.l;
+    runNewTestRollout(undefined, 'Initial Test: ' + t.l, (typeof simRet !== 'undefined' ? simRet : 0.01));
+  }
+}
 function togML(){document.getElementById('mlOpts').style.display=gc('mlOn')?'':'none';}
 function showT(n){['s','c','e'].forEach(t=>{document.getElementById('tab-'+t).classList.toggle('active',t===n);document.getElementById('pane-'+t).style.display=t===n?'':'none';});}
 function tArgs(){const fa=gc('fAct'),dw=gc('dWin'),jf=parseFloat(g('jf')||.01);switch(cur){
@@ -581,186 +651,806 @@ function refreshCharts(){
   drawChart('closs',chartData.closs,CHART_COLORS.closs);
 }
 
-// ===== Epoch Match Replays (2D top-down simulation) =====
-let repBusy=false,lastEp=0;
+// ===== Live Environment Test Simulator Engine =====
+let testAnimId = null;
+let testRunning = true;
+let testPaused = false;
+let testSpeed = 1.0;
+let testTrialCount = 1;
+let lastTestEpoch = 0;
+let testHistory = [];
+let activeTestState = null;
+
 function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
-function repEpLen(){return parseInt(g('epLen'))||20;}
-function epochNow(){return Math.floor(histAll.ret.length/repEpLen());}
-function maybeEpochClip(){
-  if(!isTr)return;
-  if(!gc('recRep'))return;
-  if(simTask!=='football_vs'){
-    if(!repSkipLogged){repSkipLogged=true;addL('Match replays simulate Football Vs — charts still track this task.','if');}
-    return;
-  }
-  var every=parseInt(g('repEvery'))||2;
-  var ep=epochNow();
-  if(ep>lastEp){
-    for(var e=lastEp+1;e<=ep;e++){
-      if(e>=1&&(e%every===0)){
-        var idx=Math.min(e*repEpLen()-1,histAll.ret.length-1);
-        recordMatchClip('Epoch '+e,idx>=0?histAll.ret[idx]:simRet,e*7919+11);
-      }
-    }
-    lastEp=ep;
-  }
+
+function setTestSpeed(val){
+  testSpeed = parseFloat(val) || 1.0;
+  const sel = document.getElementById('testSpeedSel');
+  if(sel) sel.value = String(testSpeed);
 }
-function drawPitch(ctx,W,H){
-  ctx.fillStyle='#0d5c2e';ctx.fillRect(0,0,W,H);
-  ctx.fillStyle='#0e6533';
-  for(var i=0;i<8;i++){if(i%2===0)ctx.fillRect(i*W/8,0,W/8,H);}
-  ctx.strokeStyle='rgba(255,255,255,.85)';ctx.lineWidth=2;
-  ctx.strokeRect(14,14,W-28,H-28);
-  ctx.beginPath();ctx.moveTo(W/2,14);ctx.lineTo(W/2,H-14);ctx.stroke();
-  ctx.beginPath();ctx.arc(W/2,H/2,44,0,Math.PI*2);ctx.stroke();
-  ctx.beginPath();ctx.arc(W/2,H/2,3,0,Math.PI*2);ctx.fillStyle='#fff';ctx.fill();
+
+function toggleTestPause(){
+  testPaused = !testPaused;
+  const btn = document.getElementById('pauseTestBtn');
+  if(btn) btn.textContent = testPaused ? '▶ Resume' : '❚❚ Pause';
 }
-function recordMatchClip(label,skill,seed){
-  if(repBusy){addL('Replay busy, skipping '+label+'.','wn');return;}
-  var cv=document.getElementById('repCanvas');
-  if(!cv||!cv.captureStream||typeof MediaRecorder==='undefined'){addL('Replay recording not supported in this browser.','wn');return;}
-  repBusy=true;
-  addL('Rendering replay: '+label+' ...','if');
-  var ctx=cv.getContext('2d'),W=cv.width,H=cv.height;
-  var R=mulberry32(seed);
-  skill=Math.max(0,Math.min(1,skill));
-  var F=150,f=0;
-  var gx=2.0,mouth=1.0;
-  var X=function(x){return W/2+x*(W/2-34)/2.3;};
-  var Y=function(y){return H/2+y*(H/2-30)/1.8;};
-  var ax=-1.6+(R()-.5)*.3,ay=(R()-.5)*1.0;
-  var ax0=ax,ay0=ay,bx=0,by=0,bvx=0,bvy=0,gy=0;
-  var wander=(1-skill)*.55+.03;
-  var wob1=R()*6.28,wob2=R()*6.28;
-  var aimErr=(1-skill)*1.1*(R()-.5)*2;
-  var ballSpd=1.5+skill*1.6;
-  var gkSpd=.55;
-  var contact=58,scored=false,saved=false,out=false,done=false,result='';
-  var stream=cv.captureStream(30);
-  var mime=['video/webm;codecs=vp9','video/webm','video/mp4'].find(function(t){try{return MediaRecorder.isTypeSupported(t);}catch(e){return false;}});
-  var mr;
-  try{mr=new MediaRecorder(stream,mime?{mimeType:mime}:{});}
-  catch(e){repBusy=false;addL('Could not start replay recorder.','wn');return;}
-  var chunks=[];
-  mr.ondataavailable=function(e){if(e.data&&e.data.size>0)chunks.push(e.data);};
-  mr.onstop=function(){
-    repBusy=false;
-    if(!chunks.length){addL('Replay produced no data ('+label+').','wn');return;}
-    var ext=(chunks[0].type||'').includes('mp4')?'mp4':'webm';
-    var blob=new Blob(chunks,{type:chunks[0].type||'video/webm'});
-    var url=URL.createObjectURL(blob);
-    addReplayCard(url,ext,label,'skill '+skill.toFixed(2)+(result?' · '+result:''));
-    addL('Replay ready: '+label+(result?' — '+result:'')+'.','ok');
-  };
-  function frame(){
-    try{
-    // --- physics (field units, dt=1/30) ---
-    var dt=1/30;
-    if(f<contact){
-      var k=Math.min(1,f/contact);
-      ax=ax0+((bx-ax0)*k)+Math.sin(f*.25+wob1)*wander*(1-k*.5);
-      ay=ay0+((by-ay0)*k)+Math.cos(f*.21+wob2)*wander*(1-k*.5);
-      gy+=Math.max(-gkSpd*dt,Math.min(gkSpd*dt,(by-gy)*2*dt*8));
-    }else if(!done){
-      if(f===contact){
-        var corner=(R()<.5?-1:1)*mouth*.4*Math.min(1,skill*1.2);
-        var ang=Math.atan2(corner-by,gx-bx)+aimErr;
-        bvx=Math.cos(ang)*ballSpd;bvy=Math.sin(ang)*ballSpd;
-      }
-      bx+=bvx*dt;by+=bvy*dt;
-      ax+=bvx*.25*dt;ay+=bvy*.25*dt;
-      if(f>contact+8){
-        var gyT=by+(R()-.5)*.02;
-        gy+=Math.max(-gkSpd*dt,Math.min(gkSpd*dt,gyT-gy));
-      }
-      if(bx>=gx&&Math.abs(by)<=mouth/2){
-        if(Math.abs(gy-by)<.16&&Math.abs(bx-gx)<.3){saved=true;done=true;result='SAVED';bvx*=-.25;bvy*=.4;}
-        else{scored=true;done=true;result='GOAL!';}
-      }else if(bx>=gx||Math.abs(by)>1.75||bx<-2.3){out=true;done=true;result='MISS';}
-    }else{
-      bx+=bvx*dt*.3;by+=bvy*dt*.3;bvx*=.98;bvy*=.98;
-    }
-    // --- draw ---
-    drawPitch(ctx,W,H);
-    // goals (east +x right, west -x left)
-    ctx.fillStyle='#fff';
-    [[gx,1],[gx,-1],[-gx,1],[-gx,-1]].forEach(function(p){
-      ctx.fillRect(X(p[0])-3,Y(p[1]*mouth/2)-12,6,24);
-    });
-    ctx.strokeStyle='rgba(255,255,255,.9)';ctx.lineWidth=3;
-    ctx.beginPath();ctx.moveTo(X(gx),Y(-mouth/2));ctx.lineTo(X(gx),Y(mouth/2));ctx.stroke();
-    ctx.beginPath();ctx.moveTo(X(-gx),Y(-mouth/2));ctx.lineTo(X(-gx),Y(mouth/2));ctx.stroke();
-    // ball trail
-    ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=2;
-    ctx.beginPath();ctx.moveTo(X(bx-bvx*.12),Y(by-bvy*.12));ctx.lineTo(X(bx),Y(by));ctx.stroke();
-    // goalie (cyan) and attacker (orange)
-    ctx.fillStyle='#22d3ee';ctx.beginPath();ctx.arc(X(gx-.25),Y(gy),9,0,Math.PI*2);ctx.fill();
-    ctx.fillStyle='#f59e0b';ctx.beginPath();ctx.arc(X(ax),Y(ay),9,0,Math.PI*2);ctx.fill();
-    ctx.strokeStyle='#7c2d12';ctx.lineWidth=2;
-    ctx.beginPath();ctx.moveTo(X(ax),Y(ay));ctx.lineTo(X(ax+ .22*Math.cos(Math.atan2(by-ay,bx-ax))),Y(ay+.22*Math.sin(Math.atan2(by-ay,bx-ax))));ctx.stroke();
-    // ball
-    ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(X(bx),Y(by),8,0,Math.PI*2);ctx.fill();
-    ctx.strokeStyle='#94a3b8';ctx.lineWidth=1;ctx.stroke();
-    // HUD
-    ctx.fillStyle='rgba(8,11,20,.72)';ctx.fillRect(0,0,W,34);
-    ctx.fillStyle='#e8ecff';ctx.font='bold 14px Inter,sans-serif';
-    ctx.fillText('FlyBody FC  •  '+label+'  •  skill '+skill.toFixed(2),12,22);
-    ctx.fillStyle='#8894b8';ctx.font='12px "JetBrains Mono",monospace';
-    ctx.fillText('t='+(f/30).toFixed(1)+'s',W-70,22);
-    if(result){
-      ctx.font='bold 44px Inter,sans-serif';ctx.textAlign='center';
-      ctx.fillStyle=result==='GOAL!'?'#22c55e':'#f59e0b';
-      ctx.fillText(result,W/2,H/2-10);
-      ctx.textAlign='left';
-    }
-    f++;
-    if(f<F)setTimeout(frame,1000/30);
-    else{try{mr.stop();}catch(e){repBusy=false;}try{stream.getTracks().forEach(function(t){t.stop();});}catch(e){}}
-    }catch(err){
-      repBusy=false;
-      try{mr.stop();}catch(e){}
-      try{stream.getTracks().forEach(function(t){t.stop();});}catch(e){}
-      addL('Replay render failed ('+label+'): '+((err&&err.message)||err),'wn');
-    }
-  }
-  try{mr.start(250);}catch(e){repBusy=false;return;}
-  frame();
+
+function runNewTestRollout(seed, label, skill){
+  if(seed === undefined) seed = (Date.now() % 100000) + (++testTrialCount) * 19;
+  if(label === undefined) label = 'Test Trial #' + testTrialCount;
+  if(skill === undefined) skill = (typeof simRet !== 'undefined' ? simRet : 0.01);
+  startTestRollout(seed, label, skill, true);
+  addL('▶ Test rollout #' + testTrialCount + ' (' + (TK[cur]?TK[cur].l:cur) + ') started [Skill: ' + skill.toFixed(3) + ']', 'if');
 }
-function addReplayCard(url,ext,label,sub,dlName){
-  var gal=document.getElementById('replayGallery');
-  if(!gal)return;
-  var emp=gal.querySelector?gal.querySelector('.rp-empty'):null;
-  if(emp)emp.remove();
-  document.getElementById('replaySection').style.display='flex';
-  var d=document.createElement('div');d.className='rp-card';
-  var h=document.createElement('div');h.className='rp-lbl';h.textContent=label;d.appendChild(h);
-  var v=document.createElement('video');v.controls=true;v.preload='metadata';v.src=url;d.appendChild(v);
-  var s=document.createElement('div');s.className='rp-sub';
-  var sp=document.createElement('span');sp.textContent=sub;s.appendChild(sp);
-  var a=document.createElement('a');a.className='rp-dl';a.href=url;
-  a.download=dlName||('flybody_'+label.replace(/\s+/g,'_')+'.'+ext);a.textContent='Download';
-  s.appendChild(a);d.appendChild(s);
-  gal.prepend(d);
+
+function runAnotherTrial(){
+  testTrialCount++;
+  const seed = Math.floor(Math.random() * 990000) + 1000;
+  const label = 'Trial #' + testTrialCount + ' (Seed #' + (seed % 999) + ')';
+  const skill = (typeof simRet !== 'undefined' ? simRet : 0.01);
+  startTestRollout(seed, label, skill, true);
+  addL('🎲 New test rollout trial #' + testTrialCount + ' started with fresh seed #' + (seed % 999), 'if');
 }
-function uploadRealVideos(input){
-  if(!input||!input.files||!input.files.length)return;
-  Array.prototype.forEach.call(input.files,function(f){
-    var ext=(f.name.split('.').pop()||'mp4').toLowerCase();
-    var url=URL.createObjectURL(f);
-    var sz=(f.size/1048576).toFixed(1)+' MB';
-    addReplayCard(url,ext,'Real: '+f.name,'uploaded rollout · '+sz,f.name);
+
+function replayHistoryItem(idx){
+  if(!testHistory[idx]) return;
+  const item = testHistory[idx];
+  document.querySelectorAll('.tes-item').forEach((el, i) => el.classList.toggle('active', i === idx));
+  startTestRollout(item.seed, item.label, item.skill, false);
+}
+
+function updateTestHistoryUI(){
+  const list = document.getElementById('testHistoryList');
+  const countEl = document.getElementById('tesCount');
+  if(!list) return;
+  if(countEl) countEl.textContent = testHistory.length + ' run' + (testHistory.length === 1 ? '' : 's');
+  list.innerHTML = '';
+  testHistory.forEach((item, idx) => {
+    const div = document.createElement('div');
+    div.className = 'tes-item' + (idx === 0 ? ' active' : '');
+    div.onclick = () => replayHistoryItem(idx);
+    div.innerHTML = `
+      <div class="tes-ep"><span>${item.label}</span><span style="color:var(--accent-blue)">#${item.seed % 999}</span></div>
+      <div class="tes-ret">${TK[item.task] ? TK[item.task].l : item.task} &middot; Ret: ${item.skill.toFixed(3)}</div>
+    `;
+    list.appendChild(div);
   });
-  addL(input.files.length+' real video(s) loaded into replays.','ok');
-  input.value='';
 }
-let rerunN=0;
-function rerunTestClip(){
-  if(repBusy){addL('A replay is still rendering — wait for it to finish, then re-run.','wn');return;}
-  if(cur!=='football_vs'){addL('Test matches simulate Football Vs — switch to the Football Vs task to render them.','wn');return;}
-  var best=simRet;
-  if(histAll.ret.length)best=Math.max.apply(null,histAll.ret);
-  document.getElementById('replaySection').style.display='flex';
-  recordMatchClip('Re-test '+(++rerunN),best,(Date.now()%90000)+7);
+
+// Drawing fruit fly (Drosophila melanogaster) in top-down perspective
+function drawFruitFlyTopDown(ctx, x, y, angle, wingPhase, color, size, legPhase){
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(angle);
+  const s = size || 1.0;
+
+  // Legs (6 articulated legs: front, middle, hind)
+  ctx.strokeStyle = '#2d241e';
+  ctx.lineWidth = 1.8 * s;
+  ctx.lineCap = 'round';
+  const lSw = Math.sin(legPhase) * 0.28;
+  const pairs = [
+    {offY: -4*s, angL: -0.8 + lSw, angR: 0.8 - lSw, len: 14*s},
+    {offY: 0, angL: -1.5 - lSw, angR: 1.5 + lSw, len: 15*s},
+    {offY: 6*s, angL: -2.3 + lSw, angR: 2.3 - lSw, len: 17*s}
+  ];
+  pairs.forEach(p => {
+    // Left leg
+    ctx.beginPath();
+    ctx.moveTo(0, p.offY);
+    const mxL = Math.cos(p.angL) * (p.len * 0.55);
+    const myL = Math.sin(p.angL) * (p.len * 0.55);
+    ctx.lineTo(mxL, p.offY + myL);
+    ctx.lineTo(mxL + Math.cos(p.angL - 0.5) * (p.len * 0.55), p.offY + myL + Math.sin(p.angL - 0.5) * (p.len * 0.55));
+    ctx.stroke();
+    // Right leg
+    ctx.beginPath();
+    ctx.moveTo(0, p.offY);
+    const mxR = Math.cos(p.angR) * (p.len * 0.55);
+    const myR = Math.sin(p.angR) * (p.len * 0.55);
+    ctx.lineTo(mxR, p.offY + myR);
+    ctx.lineTo(mxR + Math.cos(p.angR + 0.5) * (p.len * 0.55), p.offY + myR + Math.sin(p.angR + 0.5) * (p.len * 0.55));
+    ctx.stroke();
+  });
+
+  // Abdomen (striped tapered oval)
+  ctx.fillStyle = color || '#b87333';
+  ctx.beginPath();
+  ctx.ellipse(0, 8 * s, 6.5 * s, 11 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#4a2c11';
+  ctx.lineWidth = 1 * s;
+  ctx.stroke();
+  // Abdominal stripes
+  ctx.strokeStyle = '#2b1809';
+  ctx.lineWidth = 1.6 * s;
+  for(let i = 2; i <= 14; i += 3.5){
+    ctx.beginPath();
+    ctx.moveTo(-5 * s, (i + 1) * s);
+    ctx.lineTo(5 * s, (i + 1) * s);
+    ctx.stroke();
+  }
+
+  // Thorax (broad shield)
+  ctx.fillStyle = '#8c531b';
+  ctx.beginPath();
+  ctx.ellipse(0, -2 * s, 7 * s, 8 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#3d2008';
+  ctx.lineWidth = 1.2 * s;
+  ctx.stroke();
+
+  // Head
+  ctx.fillStyle = '#5c3814';
+  ctx.beginPath();
+  ctx.ellipse(0, -11 * s, 5.5 * s, 4.5 * s, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Red compound eyes
+  ctx.fillStyle = '#e11d48';
+  ctx.beginPath();
+  ctx.arc(-4 * s, -11.5 * s, 2.8 * s, 0, Math.PI * 2);
+  ctx.arc(4 * s, -11.5 * s, 2.8 * s, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Antennae
+  ctx.strokeStyle = '#e2e8f0';
+  ctx.lineWidth = 1 * s;
+  ctx.beginPath();
+  ctx.moveTo(-1.5 * s, -14 * s); ctx.lineTo(-3.5 * s, -18 * s);
+  ctx.moveTo(1.5 * s, -14 * s); ctx.lineTo(3.5 * s, -18 * s);
+  ctx.stroke();
+
+  // Wings (translucent veined membranes)
+  const wSpread = 0.45 + Math.sin(wingPhase) * 0.15;
+  [-1, 1].forEach(side => {
+    ctx.save();
+    ctx.translate(side * 2.5 * s, -3 * s);
+    ctx.rotate(side * (0.85 + wSpread));
+    ctx.fillStyle = 'rgba(215, 235, 255, 0.65)';
+    ctx.strokeStyle = 'rgba(120, 160, 210, 0.85)';
+    ctx.lineWidth = 0.9 * s;
+    ctx.beginPath();
+    ctx.ellipse(0, 14 * s, 5 * s, 15 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    // Wing veins
+    ctx.beginPath();
+    ctx.moveTo(0, 0); ctx.lineTo(0, 27 * s);
+    ctx.moveTo(0, 9 * s); ctx.lineTo(side * 3 * s, 18 * s);
+    ctx.stroke();
+    ctx.restore();
+  });
+
+  ctx.restore();
+}
+
+function startTestRollout(seed, label, skill, pushHistory = true){
+  if(testAnimId) cancelAnimationFrame(testAnimId);
+  testRunning = true;
+  testPaused = false;
+  const pBtn = document.getElementById('pauseTestBtn');
+  if(pBtn) pBtn.textContent = '❚❚ Pause';
+
+  skill = Math.max(0.01, Math.min(1, skill));
+  const R = mulberry32(seed);
+  const task = cur || 'football_vs';
+
+  const tTaskBadge = document.getElementById('testTaskBadge');
+  if(tTaskBadge) tTaskBadge.textContent = TK[task] ? TK[task].l : task;
+  const tEpochBadge = document.getElementById('testEpochBadge');
+  if(tEpochBadge) tEpochBadge.textContent = label + ' · Skill: ' + skill.toFixed(2);
+  const tTaskName = document.getElementById('tesTaskName');
+  if(tTaskName) tTaskName.textContent = TK[task] ? TK[task].l : task;
+  const tSkill = document.getElementById('tesSkill');
+  if(tSkill) tSkill.textContent = skill.toFixed(4);
+  const hudStatus = document.getElementById('hudStatus');
+  if(hudStatus) hudStatus.textContent = 'Simulating ' + (TK[task] ? TK[task].l : task);
+  const hudResult = document.getElementById('hudResult');
+  if(hudResult) hudResult.style.display = 'none';
+
+  const canvas = document.getElementById('testEnvCanvas');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+
+  const maxDur = parseFloat(g('testDur')) || 6.0;
+
+  const state = {
+    task: task,
+    seed: seed,
+    label: label,
+    skill: skill,
+    time: 0,
+    maxTime: maxDur,
+    done: false,
+    outcome: 'Active Run',
+    R: R,
+    particles: []
+  };
+
+  // Task-specific initial geometry
+  if(task === 'football_vs'){
+    state.gx = W * 0.86;
+    state.gh = H * 0.38;
+    state.ball = {x: W * 0.46 + (R() - 0.5) * 40, y: H * 0.5 + (R() - 0.5) * 40, vx: 0, vy: 0, r: 8.5};
+    state.attacker = {x: W * 0.16 + (R() - 0.5) * 30, y: H * 0.5 + (R() - 0.5) * 70, angle: 0, wing: 0, leg: 0};
+    state.goalie = {x: state.gx - 18, y: H * 0.5, vy: 0, wing: 0, leg: 0};
+    state.trail = [];
+    state.kicked = false;
+  } else if(task === 'flight_imitation'){
+    state.fly = {x: W * 0.2, y: H * 0.5, roll: 0, pitch: 0, wing: 0};
+    state.target = {x: W * 0.2, y: H * 0.5};
+    state.trail = [];
+  } else if(task === 'vision_guided_flight'){
+    state.fly = {x: W * 0.28, y: H * 0.45, vy: 0, pitch: 0, wing: 0};
+    state.terrainScroll = 0;
+    state.rays = [];
+  } else if(task === 'walk_on_ball'){
+    state.ballR = 82;
+    state.ballX = W * 0.5;
+    state.ballY = H * 0.56 + state.ballR * 0.5;
+    state.ballAngle = 0;
+    state.fly = {x: W * 0.5, y: state.ballY - state.ballR - 10, leg: 0, wing: 0, tilt: 0};
+  } else if(task === 'template_task'){
+    state.fly = {x: W * 0.2, y: H * 0.52, leg: 0, wing: 0, angle: 0};
+    state.arenaGrid = 28;
+  } else {
+    // walk_imitation
+    state.fly = {x: W * 0.25, y: H * 0.56, leg: 0, wing: 0};
+    state.ghost = {x: W * 0.45, y: H * 0.56, leg: 0};
+    state.trackOffset = 0;
+  }
+
+  activeTestState = state;
+
+  if(pushHistory){
+    testHistory.unshift({seed, label, skill, task});
+    if(testHistory.length > 25) testHistory.pop();
+    updateTestHistoryUI();
+  }
+
+  let lastTs = performance.now();
+
+  function loop(now){
+    if(!testRunning) return;
+    const dt = Math.min((now - lastTs) / 1000, 0.05) * testSpeed;
+    lastTs = now;
+
+    if(!testPaused && !state.done){
+      state.time += dt;
+      updateTestPhysics(state, dt, W, H);
+      if(state.time >= state.maxTime && !state.done){
+        state.done = true;
+        if(state.task === 'football_vs' && !state.kicked) state.outcome = 'Time Out';
+      }
+    } else if(state.done && !testPaused){
+      state.tail = (state.tail || 0) + dt;
+    }
+
+    renderTestEnvironment(ctx, W, H, state);
+
+    const hudT = document.getElementById('hudTime');
+    if(hudT) hudT.textContent = 't=' + Math.min(state.time, state.maxTime).toFixed(1) + 's / ' + state.maxTime.toFixed(1) + 's';
+    const outEl = document.getElementById('tesOutcome');
+    if(outEl) outEl.textContent = state.outcome;
+
+    if(!state.done || (state.tail || 0) < 1.2){
+      testAnimId = requestAnimationFrame(loop);
+    } else {
+      const hStat = document.getElementById('hudStatus');
+      if(hStat) hStat.textContent = state.outcome;
+    }
+  }
+
+  testAnimId = requestAnimationFrame(loop);
+}
+
+function updateTestPhysics(state, dt, W, H){
+  const skill = state.skill;
+  const R = state.R;
+
+  if(state.task === 'football_vs'){
+    const att = state.attacker;
+    const b = state.ball;
+    const g = state.goalie;
+
+    att.wing += dt * 35;
+    att.leg += dt * (8 + skill * 12);
+    g.wing += dt * 30;
+    g.leg += dt * 8;
+
+    // Attacker AI steering towards ball
+    const dx = b.x - att.x;
+    const dy = b.y - att.y;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    const targetAng = Math.atan2(dy, dx) - Math.PI/2;
+    const wander = (1 - skill) * Math.sin(state.time * 5 + state.seed) * 0.45;
+    att.angle += (targetAng + wander - att.angle) * Math.min(1, dt * (6 + skill * 8));
+
+    const speed = 110 + skill * 110;
+    if(dist > 18){
+      att.x += Math.cos(att.angle + Math.PI/2) * speed * dt;
+      att.y += Math.sin(att.angle + Math.PI/2) * speed * dt;
+    } else {
+      // Ball contact / kick
+      if(!state.kicked || Math.abs(b.vx) < 15){
+        state.kicked = true;
+        const cornerAim = (R() > 0.5 ? 1 : -1) * (state.gh * 0.38) * Math.min(1, skill * 1.3);
+        const aimError = (1 - skill) * (R() - 0.5) * 80;
+        const targetY = H * 0.5 + cornerAim + aimError;
+        const kickAng = Math.atan2(targetY - b.y, state.gx - b.x);
+        const kSpd = 160 + skill * 150;
+        b.vx = Math.cos(kickAng) * kSpd;
+        b.vy = Math.sin(kickAng) * kSpd;
+      }
+    }
+
+    // Ball physics
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    b.vx *= 0.985;
+    b.vy *= 0.985;
+
+    // Pitch bounce
+    if(b.y < 28 || b.y > H - 28){
+      b.vy = -b.vy * 0.75;
+      b.y = Math.max(29, Math.min(H - 29, b.y));
+    }
+
+    // Goalie tracking
+    const goalieTargetY = Math.max(H*0.5 - state.gh*0.4, Math.min(H*0.5 + state.gh*0.4, b.y));
+    g.y += (goalieTargetY - g.y) * Math.min(1, dt * (3 + (1 - skill) * 3));
+
+    // Goal detection
+    if(!state.done && b.x >= state.gx - 12){
+      if(Math.abs(b.y - H*0.5) <= state.gh * 0.5){
+        if(Math.abs(b.y - g.y) < 22 && b.x < state.gx + 5){
+          state.outcome = 'SAVED BY GOALIE';
+          state.done = true;
+          b.vx = -b.vx * 0.35;
+          setHudResult('SAVED', '#f59e0b');
+        } else {
+          state.outcome = 'GOAL SCORED!';
+          state.done = true;
+          setHudResult('GOAL!', '#22c55e');
+          // Spawn goal confetti particles
+          for(let i=0; i<30; i++){
+            state.particles.push({
+              x: b.x, y: b.y,
+              vx: (Math.random()-0.5)*180, vy: (Math.random()-0.5)*180,
+              col: ['#22c55e','#facc15','#38bdf8','#ec4899'][i%4],
+              life: 1.0
+            });
+          }
+        }
+      } else {
+        state.outcome = 'SHOT WIDE';
+        state.done = true;
+        setHudResult('MISS', '#94a3b8');
+      }
+    }
+
+    // Ball trail
+    state.trail.push({x: b.x, y: b.y});
+    if(state.trail.length > 18) state.trail.shift();
+
+  } else if(state.task === 'flight_imitation'){
+    const fl = state.fly;
+    const t = state.time;
+    fl.wing += dt * 55;
+
+    // Figure-8 3D aerobatic path
+    const tgtX = W * 0.5 + Math.sin(t * 1.8) * (W * 0.32);
+    const tgtY = H * 0.5 + Math.sin(t * 3.6) * (H * 0.28);
+    state.target = {x: tgtX, y: tgtY};
+
+    const lag = (1 - skill) * 0.45;
+    const wobble = (1 - skill) * Math.sin(t * 8 + state.seed) * 28;
+    fl.x += (tgtX - fl.x) * Math.min(1, dt * (3.5 + skill * 6));
+    fl.y += (tgtY + wobble - fl.y) * Math.min(1, dt * (3.5 + skill * 6));
+    fl.roll = (tgtX - fl.x) * 0.015;
+    fl.pitch = (tgtY - fl.y) * 0.012;
+
+    state.trail.push({x: fl.x, y: fl.y});
+    if(state.trail.length > 36) state.trail.shift();
+
+    const trackErr = Math.hypot(tgtX - fl.x, tgtY - fl.y);
+    state.outcome = trackErr < 24 ? 'Aerobatic Track: High' : (trackErr < 50 ? 'Aerobatic Track: Stable' : 'Aerobatic Track: Drifting');
+
+  } else if(state.task === 'vision_guided_flight'){
+    const fl = state.fly;
+    fl.wing += dt * 50;
+    state.terrainScroll += dt * 140;
+
+    // Terrain elevation calculation at fly X
+    const terrainX = fl.x + state.terrainScroll;
+    const groundH = H * 0.72 - (Math.sin(terrainX * 0.014) * 55 + Math.cos(terrainX * 0.028) * 25);
+    const targetAlt = groundH - 75;
+
+    const delay = (1 - skill) * 0.35;
+    fl.y += (targetAlt - fl.y) * Math.min(1, dt * (4 + skill * 8));
+    fl.pitch = (targetAlt - fl.y) * 0.008;
+
+    state.rays = [];
+    for(let a = -0.35; a <= 0.35; a += 0.18){
+      const rx = fl.x + Math.sin(a) * 90;
+      const ry = fl.y + Math.cos(a) * 90;
+      state.rays.push({x1: fl.x, y1: fl.y + 4, x2: rx, y2: Math.min(ry, groundH)});
+    }
+
+    state.outcome = Math.abs(fl.y - targetAlt) < 18 ? 'Terrain Clearance: Optimal' : 'Terrain Clearance: Adjusting';
+
+  } else if(state.task === 'walk_on_ball'){
+    const fl = state.fly;
+    const t = state.time;
+    const walkSpd = (5 + skill * 14);
+    fl.leg += dt * walkSpd;
+    state.ballAngle += dt * walkSpd * 0.35;
+    const instability = (1 - skill) * Math.sin(t * 5.5 + state.seed) * 24;
+    fl.tilt = (instability * 0.032);
+    fl.x = state.ballX + instability;
+    fl.y = (state.ballY - state.ballR - 10) + Math.abs(instability) * 0.22;
+    const slip = Math.abs(instability);
+    state.outcome = slip < 7 ? 'Tethered Ball Walk: Stable' : (slip < 15 ? 'Tethered Ball Walk: Balancing' : 'Tethered Ball Walk: Slipping');
+
+  } else if(state.task === 'template_task'){
+    const fl = state.fly;
+    fl.leg += dt * (7 + skill * 12);
+    fl.x += dt * (35 + skill * 55);
+    if(fl.x > W * 0.85) fl.x = W * 0.15;
+    state.outcome = 'Custom Prototype: Traversing';
+
+  } else {
+    // walk_imitation
+    const fl = state.fly;
+    const gh = state.ghost;
+    const t = state.time;
+    fl.leg += dt * (8 + skill * 14);
+    gh.leg += dt * 16;
+    state.trackOffset += dt * 80;
+
+    const targetX = W * 0.52 + Math.sin(t * 1.5) * (W * 0.18);
+    gh.x = targetX;
+    fl.x += (targetX - fl.x) * Math.min(1, dt * (2.5 + skill * 6));
+
+    const walkLag = Math.abs(gh.x - fl.x);
+    state.outcome = walkLag < 20 ? 'Ghost Tracking: Synchronized' : 'Ghost Tracking: Pacing';
+  }
+
+  // Update particles
+  state.particles.forEach(p => {
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.life -= dt * 1.1;
+  });
+  state.particles = state.particles.filter(p => p.life > 0);
+}
+
+function setHudResult(text, color){
+  const hRes = document.getElementById('hudResult');
+  if(!hRes) return;
+  hRes.textContent = text;
+  hRes.style.display = 'inline-block';
+  hRes.style.background = color || '#22c55e';
+  hRes.style.color = '#000';
+}
+
+function renderTestEnvironment(ctx, W, H, state){
+  ctx.clearRect(0, 0, W, H);
+
+  if(state.task === 'football_vs'){
+    // Football Field (Turf stripes)
+    ctx.fillStyle = '#0e5f32';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#106b38';
+    const stripeW = W / 10;
+    for(let i=0; i<10; i+=2) ctx.fillRect(i * stripeW, 0, stripeW, H);
+
+    // Field boundaries
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+    ctx.lineWidth = 2.5;
+    ctx.strokeRect(22, 20, W - 44, H - 40);
+
+    // Center line and circle
+    ctx.beginPath();
+    ctx.moveTo(W/2, 20); ctx.lineTo(W/2, H - 20);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(W/2, H/2, 48, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(W/2, H/2, 3.5, 0, Math.PI*2); ctx.fill();
+
+    // Goals (West and East)
+    const gh = state.gh;
+    // East Goal (target)
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
+    ctx.fillRect(state.gx, H/2 - gh/2, W - 22 - state.gx, gh);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(state.gx, H/2 - gh/2, W - 22 - state.gx, gh);
+    // Net pattern
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+    ctx.lineWidth = 1;
+    for(let y = H/2 - gh/2 + 8; y < H/2 + gh/2; y += 12){
+      ctx.beginPath(); ctx.moveTo(state.gx, y); ctx.lineTo(W - 22, y); ctx.stroke();
+    }
+
+    // Ball trail
+    if(state.trail.length > 1){
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.28)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      state.trail.forEach((pt, i) => i === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y));
+      ctx.stroke();
+    }
+
+    // Soccer Ball
+    const b = state.ball;
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.45)';
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 4;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    // Pentagons on ball
+    ctx.fillStyle = '#1e293b';
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r * 0.42, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Goalie Fly (Cyan/Blue Fly)
+    const g = state.goalie;
+    drawFruitFlyTopDown(ctx, g.x, g.y, -Math.PI/2, g.wing, '#0284c7', 0.9, g.leg);
+
+    // Attacker Fly (Orange/Amber Fly)
+    const att = state.attacker;
+    drawFruitFlyTopDown(ctx, att.x, att.y, att.angle, att.wing, '#d97706', 1.0, att.leg);
+
+  } else if(state.task === 'flight_imitation'){
+    // Flight 3D grid arena
+    ctx.fillStyle = '#060a14';
+    ctx.fillRect(0, 0, W, H);
+
+    // 3D Perspective Ground Grid
+    ctx.strokeStyle = 'rgba(34, 211, 238, 0.18)';
+    ctx.lineWidth = 1;
+    const horizonY = H * 0.38;
+    for(let x = -W; x <= W * 2; x += 60){
+      ctx.beginPath();
+      ctx.moveTo(W/2, horizonY);
+      ctx.lineTo(x, H);
+      ctx.stroke();
+    }
+    for(let y = horizonY + 12; y < H; y += Math.max(8, (y - horizonY) * 0.35)){
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
+      ctx.stroke();
+    }
+
+    // Reference aerobatic trajectory curve
+    ctx.strokeStyle = 'rgba(168, 85, 247, 0.35)';
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([6, 6]);
+    ctx.beginPath();
+    for(let s = 0; s < 6.28; s += 0.1){
+      const px = W * 0.5 + Math.sin(s) * (W * 0.32);
+      const py = H * 0.5 + Math.sin(s * 2) * (H * 0.28);
+      s === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Target waypoint orb
+    const tgt = state.target;
+    ctx.fillStyle = 'rgba(168, 85, 247, 0.85)';
+    ctx.shadowColor = '#a855f7';
+    ctx.shadowBlur = 14;
+    ctx.beginPath();
+    ctx.arc(tgt.x, tgt.y, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Flight trail
+    if(state.trail.length > 1){
+      ctx.strokeStyle = 'rgba(34, 211, 238, 0.55)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      state.trail.forEach((pt, i) => i === 0 ? ctx.moveTo(pt.x, pt.y) : ctx.lineTo(pt.x, pt.y));
+      ctx.stroke();
+    }
+
+    // 3D Banking Fruit Fly
+    const fl = state.fly;
+    drawFruitFlyTopDown(ctx, fl.x, fl.y, fl.roll * 1.5, fl.wing, '#059669', 1.08, 0);
+
+  } else if(state.task === 'vision_guided_flight'){
+    // Sky gradient
+    const sky = ctx.createLinearGradient(0, 0, 0, H);
+    sky.addColorStop(0, '#090d1c');
+    sky.addColorStop(0.7, '#131930');
+    sky.addColorStop(1, '#0e2422');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, W, H);
+
+    // Sinusoidal wavy terrain with gradient
+    ctx.fillStyle = '#064e3b';
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+    for(let x = 0; x <= W; x += 6){
+      const tX = x + state.terrainScroll;
+      const tY = H * 0.72 - (Math.sin(tX * 0.014) * 55 + Math.cos(tX * 0.028) * 25);
+      ctx.lineTo(x, tY);
+    }
+    ctx.lineTo(W, H);
+    ctx.closePath();
+    ctx.fill();
+
+    // Terrain outline
+    ctx.strokeStyle = '#10b981';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    for(let x = 0; x <= W; x += 6){
+      const tX = x + state.terrainScroll;
+      const tY = H * 0.72 - (Math.sin(tX * 0.014) * 55 + Math.cos(tX * 0.028) * 25);
+      x === 0 ? ctx.moveTo(x, tY) : ctx.lineTo(x, tY);
+    }
+    ctx.stroke();
+
+    // Optical vision rays
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
+    ctx.lineWidth = 1.2;
+    state.rays.forEach(r => {
+      ctx.beginPath();
+      ctx.moveTo(r.x1, r.y1);
+      ctx.lineTo(r.x2, r.y2);
+      ctx.stroke();
+    });
+
+    // Side-view Fruit Fly in Flight
+    const fl = state.fly;
+    drawFruitFlyTopDown(ctx, fl.x, fl.y, Math.PI/2 + fl.pitch, fl.wing, '#f59e0b', 1.05, 0);
+
+  } else if(state.task === 'walk_on_ball'){
+    // Laboratory arena with air-cushion floating sphere
+    ctx.fillStyle = '#080c18';
+    ctx.fillRect(0, 0, W, H);
+
+    // Air support cup
+    ctx.fillStyle = '#161c30';
+    ctx.strokeStyle = '#2d3752';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(state.ballX, state.ballY + state.ballR * 0.62, state.ballR * 0.88, 26, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Floating Air Jets (Glow)
+    ctx.fillStyle = 'rgba(34, 211, 238, 0.22)';
+    ctx.beginPath();
+    ctx.ellipse(state.ballX, state.ballY + state.ballR * 0.62, state.ballR * 0.72, 16, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 3D Shaded Spherical Floating Ball
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(state.ballX, state.ballY, state.ballR, 0, Math.PI * 2);
+    ctx.clip();
+
+    // Ball gradient
+    const ballGrad = ctx.createRadialGradient(
+      state.ballX - state.ballR * 0.35, state.ballY - state.ballR * 0.35, 10,
+      state.ballX, state.ballY, state.ballR
+    );
+    ballGrad.addColorStop(0, '#f1f5f9');
+    ballGrad.addColorStop(0.65, '#94a3b8');
+    ballGrad.addColorStop(1, '#334155');
+    ctx.fillStyle = ballGrad;
+    ctx.fillRect(state.ballX - state.ballR, state.ballY - state.ballR, state.ballR * 2, state.ballR * 2);
+
+    // Rotating longitude lines on ball
+    ctx.strokeStyle = 'rgba(15, 23, 42, 0.42)';
+    ctx.lineWidth = 2;
+    for(let a = -1.4; a <= 1.4; a += 0.45){
+      const offAng = state.ballAngle + a;
+      const xOff = Math.sin(offAng) * state.ballR * 0.85;
+      ctx.beginPath();
+      ctx.ellipse(state.ballX + xOff, state.ballY, Math.abs(Math.cos(offAng)) * (state.ballR * 0.65) + 6, state.ballR, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // Latitude line
+    ctx.beginPath();
+    ctx.ellipse(state.ballX, state.ballY, state.ballR, state.ballR * 0.22, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+
+    // Ball outline
+    ctx.strokeStyle = '#64748b';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(state.ballX, state.ballY, state.ballR, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Tether pin holding the fly from top
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(state.fly.x, 0);
+    ctx.lineTo(state.fly.x, state.fly.y - 10);
+    ctx.stroke();
+    ctx.fillStyle = '#94a3b8';
+    ctx.beginPath();
+    ctx.arc(state.fly.x, state.fly.y - 10, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Drosophila walking on ball
+    const fl = state.fly;
+    drawFruitFlyTopDown(ctx, fl.x, fl.y, fl.tilt, fl.wing, '#059669', 1.05, fl.leg);
+
+  } else if(state.task === 'template_task'){
+    // Template arena grid
+    ctx.fillStyle = '#0a0d18';
+    ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = 'rgba(91, 127, 255, 0.15)';
+    ctx.lineWidth = 1;
+    for(let x = 0; x < W; x += 30){
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+    }
+    for(let y = 0; y < H; y += 30){
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+    }
+    const fl = state.fly;
+    drawFruitFlyTopDown(ctx, fl.x, fl.y, Math.PI/2, 0, '#8b5cf6', 1.0, fl.leg);
+
+  } else {
+    // walk_imitation
+    ctx.fillStyle = '#0a0d18';
+    ctx.fillRect(0, 0, W, H);
+
+    // Walking path / track
+    ctx.fillStyle = '#141828';
+    ctx.fillRect(0, H * 0.44, W, H * 0.32);
+    ctx.strokeStyle = '#2a3050';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(0, H * 0.44, W, H * 0.32);
+
+    // Tread lines
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+    ctx.lineWidth = 1.5;
+    const off = state.trackOffset % 40;
+    for(let x = -40 + off; x < W + 40; x += 40){
+      ctx.beginPath();
+      ctx.moveTo(x, H * 0.44);
+      ctx.lineTo(x, H * 0.76);
+      ctx.stroke();
+    }
+
+    // Ghost reference fly
+    const gh = state.ghost;
+    drawFruitFlyTopDown(ctx, gh.x, gh.y, Math.PI/2, 0, 'rgba(168, 85, 247, 0.45)', 0.95, gh.leg);
+
+    // Active learning fruit fly
+    const fl = state.fly;
+    drawFruitFlyTopDown(ctx, fl.x, fl.y, Math.PI/2, fl.wing, '#10b981', 1.0, fl.leg);
+  }
+
+  // Draw celebration particles
+  state.particles.forEach(p => {
+    ctx.fillStyle = p.col;
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1.0;
+  });
 }
 
 // ===== Tab Switching =====
@@ -770,7 +1460,12 @@ function switchMainTab(tab){
     const el=document.getElementById('pane-'+p);
     if(el)el.classList.toggle('active',p===tab);
   });
-  if(tab==='results'){setTimeout(resizeCharts,60);}
+  if(tab==='results'){
+    setTimeout(()=>{
+      resizeCharts();
+      if(!activeTestState) runNewTestRollout(42, 'Initial Test: ' + (TK[cur]?TK[cur].l:cur), simRet);
+    }, 60);
+  }
 }
 
 // ===== Launch / Stop =====
@@ -780,10 +1475,6 @@ function launch(){
   simTask=cur;
   const P0=TASK_SIM[simTask]||TASK_SIM.walk_imitation;
   simStep=0;simRet=P0.ret0;simEvl=P0.ret0;simPloss=-.2;simCloss=1.5;simSPS=0;prg=0;lmi=0;
-  lastEp=0;repSkipLogged=false;
-  var _gal=document.getElementById('replayGallery');
-  if(_gal)_gal.innerHTML='<div class="rp-empty">'+(simTask==='football_vs'?'Waiting for epoch replays…':'Match replays render for the Football Vs task — charts still track this run.')+'</div>';
-  document.getElementById('replaySection').style.display='flex';
   document.getElementById('trainingDoneMsg').style.display='none';
   document.getElementById('launchBtn').style.display='none';
   const lb2=document.getElementById('launchBtn2');if(lb2)lb2.style.display='none';
@@ -816,7 +1507,6 @@ function stopT(){
 
 function finishSim(){
   clearInterval(simInterval);simInterval=null;
-  if(gc('recRep')&&simTask==='football_vs')recordMatchClip('Final',simRet,99991);
   document.getElementById('trainingDoneMsg').style.display='inline-flex';
   addL('Training complete!','ok');
   ['pBar','pBar-r'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.width='100%';});
@@ -830,9 +1520,13 @@ function finishSim(){
   document.getElementById('sTxt').textContent='Done';
   document.getElementById('cfgBadge').textContent='Done';
   document.getElementById('resBadge').textContent='Done';
+  if(gc('autoTest')){
+    runNewTestRollout(99991, 'Final Evaluation', simRet);
+    addL('▶ Final policy evaluation rollout complete (return: ' + simRet.toFixed(3) + ')', 'ok');
+  }
 }
 
-// ===== simTick updated with dual progress bars =====
+// ===== simTick updated with dual progress bars & epoch test rollouts =====
 function simTick(){
   const P=TASK_SIM[simTask]||TASK_SIM.walk_imitation;
   simStep+=Math.round(55+Math.random()*90);
@@ -859,13 +1553,23 @@ function simTick(){
     if(mxSt>0&&histAll.ret.length>=mxSt){finishSim();return;}
   }else document.getElementById('ls-eta').textContent='∞';
   refreshCharts();
-  maybeEpochClip();
   prg=Math.min(prg+Math.random()*1.8,infMode?99.8:88);
   const pct=Math.round(prg);
   ['pBar','pBar-r'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.width=prg+'%';});
   const lbl='∼'+pct+'% · step '+simStep;
   ['pLbl','pLbl-r'].forEach(id=>{const e=document.getElementById(id);if(e)e.textContent=lbl;});
   if(lmi<LM.length){addL(LM[lmi][1],LM[lmi][0]);lmi++;}
+
+  // Auto-eval test rollout at epoch intervals
+  if(gc('autoTest')){
+    const testInterval = parseInt(g('testInt')) || 15;
+    if(histAll.ret.length > 0 && histAll.ret.length % testInterval === 0){
+      const epochNum = Math.floor(histAll.ret.length / testInterval);
+      const epochSeed = 2000 + epochNum * 149 + (Date.now() % 500);
+      runNewTestRollout(epochSeed, 'Epoch ' + epochNum + ' Eval', simRet);
+      addL('▶ Auto-eval test rollout triggered for Epoch ' + epochNum + ' (return: ' + simRet.toFixed(3) + ')', 'if');
+    }
+  }
 }
 
 // ===== Playback (chart history replay) =====
@@ -885,6 +1589,13 @@ function playbackAll(){
   frame();
 }
 
+let logAutoScroll=true;
+function setLogAuto(el){
+  logAutoScroll=el.checked;
+  ['logAuto','logAutoR'].forEach(id=>{if(id!==el.id){const o=document.getElementById(id);if(o)o.checked=el.checked;}});
+  if(el.checked){['logA','logA-r'].forEach(lid=>{const la=document.getElementById(lid);if(la)la.scrollTop=la.scrollHeight;});}
+  addL('Log auto-scroll '+(el.checked?'enabled.':'paused — new messages will not move the view.'),'if');
+}
 function addL(msg,cls){
   ['logA','logA-r'].forEach(lid=>{
     const la=document.getElementById(lid);
@@ -894,11 +1605,16 @@ function addL(msg,cls){
     s.className='ll';
     s.innerHTML='<span class="ts">['+ts+']</span> <span class="'+cls+'">'+msg+'</span>';
     la.appendChild(s);
-    la.scrollTop=la.scrollHeight;
+    if(logAutoScroll)la.scrollTop=la.scrollHeight;
   });
 }
 window.addEventListener('resize',()=>{if(document.getElementById('pane-results').classList.contains('active'))resizeCharts();});
-document.addEventListener('DOMContentLoaded',()=>{selT(document.querySelector('.tbtn.active'));});
+document.addEventListener('DOMContentLoaded',()=>{
+  selT(document.querySelector('.tbtn.active'));
+  setTimeout(()=>{
+    runNewTestRollout(42, 'Initial Test: ' + (TK[cur]?TK[cur].l:cur), 0.01);
+  }, 100);
+});
 </script>
 </body>
 </html>
