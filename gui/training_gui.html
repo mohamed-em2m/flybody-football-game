@@ -7,6 +7,12 @@
   <meta name="description" content="GUI for configuring and launching FlyBody RL training runs with DMPO agent on Ray." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <script type="importmap">
+  {"imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }}
+  </script>
   <style>
     :root {
       --bg-base:#0a0c14;--bg-panel:#10131f;--bg-card:#161928;--bg-input:#1e2338;
@@ -187,7 +193,15 @@
         <div class="trow"><span class="tlbl">Canonical Spec Wrapper (clip)</span><label class="tog"><input type="checkbox" id="cSpc" checked onchange="upd()"><span class="slt"></span></label></div>
         <div class="fr" style="margin-top:8px"><div class="fl">Joint Filter <span class="tip" data-tip="Low-pass time constant. 0=disabled.">?</span><span class="vb" id="jfL">0.010</span></div><input type="range" id="jf" min="0" max="0.1" step=".001" value=".01" oninput="sr(this,'jfL',3);upd()"></div>
       </div>
-      <div class="stit">&#9881;&#65039; DMPO Agent Config</div>
+      <div class="stit">&#9881;&#65039; Agent Config</div>
+      <div class="card">
+        <div class="card-title">RL Algorithm</div>
+        <div class="tgrid" id="agentGrid">
+          <button class="tbtn active" data-agent="dmpo" onclick="selAgent(this)"><span class="ti">&#129302;</span>DMPO <span style="font-size:.62rem;color:var(--text-muted)">Ray + TF</span></button>
+          <button class="tbtn" data-agent="ppo" onclick="selAgent(this)"><span class="ti">&#9889;</span>PPO <span style="font-size:.62rem;color:var(--text-muted)">Torch CPU</span></button>
+        </div>
+        <div id="agentDesc" style="margin-top:10px;font-size:.74rem;color:var(--text-secondary);line-height:1.5">Distributed off-policy DMPO on Ray (needs TF + GPU learner).</div>
+      </div>
       <div class="card">
         <div class="card-title">Actor / Replay Settings</div>
         <div class="fr"><div class="fl">Num Actors <span class="tip" data-tip="Parallel actor processes">?</span><span class="vb" id="naL">32</span></div><input type="range" id="na" min="1" max="128" step="1" value="32" oninput="sr(this,'naL',0);upd()"></div>
@@ -197,7 +211,7 @@
         <div class="fr" style="margin-top:4px"><div class="fl">Max Sim Steps <span class="tip" data-tip="GUI simulation steps before auto-stop. 0 = infinite.">?</span><span class="vb" id="mssL">200</span></div><input type="range" id="mss" min="0" max="1000" step="50" value="200" oninput="sr(this,'mssL',0);upd()"></div>
         <div class="trow"><span class="tlbl">Infinite Run &#8734; <span class="tip" data-tip="Simulate training indefinitely with no auto-stop">?</span></span><label class="tog"><input type="checkbox" id="infiniteRun" onchange="upd()"><span class="slt"></span></label></div>
       </div>
-      <div class="card">
+      <div class="card" id="cardReplay">
         <div class="card-title">Replay Buffer</div>
         <div class="fr"><div class="fl">Min Replay Size <span class="tip" data-tip="Min transitions before learning starts">?</span></div><input type="number" id="mrs" value="10000" step="1000" min="100" onchange="upd()"></div>
         <div class="fr"><div class="fl">Max Replay Size</div><input type="number" id="mxrs" value="4000000" step="100000" min="10000" onchange="upd()"></div>
@@ -221,7 +235,7 @@
         <div class="fr"><div class="fl">V-Max<span class="vb" id="vmxL">150</span></div><input type="range" id="vmx" min="10" max="500" step="10" value="150" oninput="sr(this,'vmxL',0);upd()"></div>
         <div class="fr"><div class="fl">Num Atoms<span class="vb" id="atL">51</span></div><input type="range" id="at" min="11" max="201" step="10" value="51" oninput="sr(this,'atL',0);upd()"></div>
       </div>
-      <div class="card">
+      <div class="card" id="cardDist">
         <div class="card-title">Policy Distribution</div>
         <div class="trow"><span class="tlbl">Tanh Mean <span class="tip" data-tip="Squash mean with tanh">?</span></span><label class="tog"><input type="checkbox" id="tanhM" onchange="upd()"><span class="slt"></span></label></div>
         <div class="trow"><span class="tlbl">Fixed Scale <span class="tip" data-tip="Fix action stddev">?</span></span><label class="tog"><input type="checkbox" id="fixSc" onchange="upd()"><span class="slt"></span></label></div>
@@ -229,8 +243,8 @@
         <div class="fr"><div class="fl">Init Scale<span class="vb" id="isL">0.700</span></div><input type="range" id="isc" min="0.1" max="2.0" step=".05" value=".7" oninput="sr(this,'isL',3);upd()"></div>
         <div class="fr"><div class="fl">Min Scale</div><select id="minSc" onchange="upd()"><option value="1e-7">1e-7</option><option value="1e-6" selected>1e-6</option><option value="1e-5">1e-5</option><option value="1e-4">1e-4</option></select></div>
       </div>
-      <div class="stit">&#128201; MPO Policy Loss</div>
-      <div class="card">
+      <div class="stit" id="stitLoss">&#128201; MPO Policy Loss</div>
+      <div class="card" id="cardMpo">
         <div class="card-title">KL Constraints (&epsilon;)</div>
         <div class="p2">
           <div><div class="fl">&epsilon; action KL<span class="vb" id="epL">0.100</span></div><input type="range" id="ep" min=".01" max="1.0" step=".01" value=".1" oninput="sr(this,'epL',3);upd()"></div>
@@ -241,14 +255,33 @@
         <div class="trow" style="margin-top:10px"><span class="tlbl">Action Penalization <span class="tip" data-tip="Penalize out-of-bound real actions">?</span></span><label class="tog"><input type="checkbox" id="actPen" checked onchange="upd()"><span class="slt"></span></label></div>
         <div class="trow"><span class="tlbl">Per-Dim Constraining <span class="tip" data-tip="KL per action dim">?</span></span><label class="tog"><input type="checkbox" id="perDim" checked onchange="upd()"><span class="slt"></span></label></div>
       </div>
+      <div class="card" id="cardPpo" style="display:none">
+        <div class="card-title">PPO Settings <span style="font-size:.65rem;color:var(--text-muted)">on-policy · torch CPU · no Ray/TF</span></div>
+        <div class="fr"><div class="fl">Rollout Workers <span class="tip" data-tip="Parallel env processes collecting trajectories">?</span><span class="vb" id="pWL">8</span></div><input type="range" id="pW" min="1" max="32" step="1" value="8" oninput="sr(this,'pWL',0);upd()"></div>
+        <div class="fr"><div class="fl">Rollout Steps / Worker<span class="vb" id="pStepsL">512</span></div><input type="range" id="pSteps" min="64" max="2048" step="64" value="512" oninput="sr(this,'pStepsL',0);upd()"></div>
+        <div class="fr"><div class="fl">Epochs<span class="vb" id="pEpL">3</span></div><input type="range" id="pEp" min="1" max="10" step="1" value="3" oninput="sr(this,'pEpL',0);upd()"></div>
+        <div class="fr"><div class="fl">Minibatch Size<span class="vb" id="pMBL">512</span></div><input type="range" id="pMB" min="64" max="4096" step="64" value="512" oninput="sr(this,'pMBL',0);upd()"></div>
+        <div class="fr"><div class="fl">Clip &epsilon;<span class="vb" id="pClipL">0.200</span></div><input type="range" id="pClip" min=".05" max=".5" step=".01" value=".2" oninput="sr(this,'pClipL',3);upd()"></div>
+        <div class="fr"><div class="fl">GAE &lambda;<span class="vb" id="pLamL">0.950</span></div><input type="range" id="pLam" min=".8" max="1.0" step=".01" value=".95" oninput="sr(this,'pLamL',3);upd()"></div>
+        <div class="p2">
+          <div><div class="fl">Value Coef<span class="vb" id="pVCL">0.50</span></div><input type="range" id="pVC" min="0" max="2" step=".05" value=".5" oninput="sr(this,'pVCL',2);upd()"></div>
+          <div><div class="fl">Entropy Coef<span class="vb" id="pECL">0.010</span></div><input type="range" id="pEC" min="0" max=".1" step=".005" value=".01" oninput="sr(this,'pECL',3);upd()"></div>
+          <div><div class="fl">Init Log-Std<span class="vb" id="pLSL">-0.50</span></div><input type="range" id="pLS" min="-2" max="0" step=".1" value="-.5" oninput="sr(this,'pLSL',2);upd()"></div>
+          <div><div class="fl">Max Grad Norm<span class="vb" id="pGNL">0.50</span></div><input type="range" id="pGN" min=".1" max="5" step=".1" value=".5" oninput="sr(this,'pGNL',2);upd()"></div>
+        </div>
+        <div class="fr"><div class="fl">Run Dir</div><input type="text" id="ppoDir" value="runs/ppo1" onchange="upd()"></div>
+        <div class="fr"><div class="fl">Seed</div><input type="number" id="ppoSeed" value="0" step="1" onchange="upd()"></div>
+        <div class="trow"><span class="tlbl">Resume From Run Dir <span class="tip" data-tip="Load latest.pt and continue training">?</span></span><label class="tog"><input type="checkbox" id="ppoResume" onchange="upd()"><span class="slt"></span></label></div>
+        <div style="font-size:.66rem;color:var(--text-muted);line-height:1.5">Actor LR = Policy LR, Critic LR = Critic LR, &gamma; = Discount above. Nets reuse the MLP sizes above.</div>
+      </div>
       <div class="stit">&#9889; Optimizers (Adam)</div>
       <div class="card">
         <div class="fr"><div class="fl">Policy LR</div><select id="polLR" onchange="upd()"><option value="1e-5">1e-5</option><option value="5e-5">5e-5</option><option value="1e-4" selected>1e-4</option><option value="3e-4">3e-4</option><option value="1e-3">1e-3</option></select></div>
         <div class="fr"><div class="fl">Critic LR</div><select id="critLR" onchange="upd()"><option value="1e-5">1e-5</option><option value="5e-5">5e-5</option><option value="1e-4" selected>1e-4</option><option value="3e-4">3e-4</option><option value="1e-3">1e-3</option></select></div>
         <div class="fr"><div class="fl">Dual LR</div><select id="dualLR" onchange="upd()"><option value="1e-4">1e-4</option><option value="5e-4">5e-4</option><option value="1e-3" selected>1e-3</option><option value="5e-3">5e-3</option></select></div>
       </div>
-      <div class="stit">&#128260; Update Periods</div>
-      <div class="card">
+      <div class="stit" id="stitPeriods">&#128260; Update Periods</div>
+      <div class="card" id="cardPeriods">
         <div class="fr"><div class="fl">Target Policy Period<span class="vb" id="tppL">101</span></div><input type="range" id="tpp" min="10" max="500" step="1" value="101" oninput="sr(this,'tppL',0);upd()"></div>
         <div class="fr"><div class="fl">Target Critic Period<span class="vb" id="tcpL">107</span></div><input type="range" id="tcp" min="10" max="500" step="1" value="107" oninput="sr(this,'tcpL',0);upd()"></div>
         <div class="fr"><div class="fl">Actor Update Period<span class="vb" id="aupL">1000</span></div><input type="range" id="aup" min="100" max="5000" step="100" value="1000" oninput="sr(this,'aupL',0);upd()"></div>
@@ -284,10 +317,10 @@
       <div class="chdr"><span class="ctit">Generated Training Script</span><span class="tag tblu" id="mTag">Walk Imitation</span></div>
       <div class="cbdy">
         <div class="sbar">
-          <div class="schip"><div class="sv" id="stA">32</div><div class="sk">Actors</div></div>
-          <div class="schip"><div class="sv" id="stB">256</div><div class="sk">Batch</div></div>
-          <div class="schip"><div class="sv" id="stS">15x</div><div class="sk">SPI</div></div>
-          <div class="schip"><div class="sv" id="stG">0.990</div><div class="sk">Gamma</div></div>
+          <div class="schip"><div class="sv" id="stA">32</div><div class="sk" id="stAK">Actors</div></div>
+          <div class="schip"><div class="sv" id="stB">256</div><div class="sk" id="stBK">Batch</div></div>
+          <div class="schip"><div class="sv" id="stS">15x</div><div class="sk" id="stSK">SPI</div></div>
+          <div class="schip"><div class="sv" id="stG">0.990</div><div class="sk" id="stGK">Gamma</div></div>
         </div>
         <div class="tabs">
           <div class="tab active" id="tab-s" onclick="showT('s')">&#127822; Python</div>
@@ -390,6 +423,9 @@
           <button class="btn bpri" id="runTestBtn" onclick="runNewTestRollout()" style="padding:6px 14px;font-size:.74rem;font-weight:700" title="Run a new test rollout simulation">&#9654; Run Test Again</button>
           <button class="btn bsec" id="anotherTrialBtn" onclick="runAnotherTrial()" style="padding:6px 12px;font-size:.74rem" title="Run another trial with different random seed">&#127922; Another Trial</button>
           <button class="btn bsec" onclick="toggleTestPause()" id="pauseTestBtn" style="padding:6px 12px;font-size:.74rem">&#10074;&#10074; Pause</button>
+          <button class="btn bpri" id="view3DBtn" onclick="setViewMode('3d')" style="padding:6px 12px;font-size:.74rem" title="Render the live rollout with the 3D fruit-fly model in a 3D stadium (Three.js)">&#127912; 3D</button>
+          <button class="btn bsec" id="view2DBtn" onclick="setViewMode('2d')" style="padding:6px 12px;font-size:.74rem;display:none" title="Back to the top-down 2D canvas">&#128506; 2D</button>
+          <label style="display:flex;align-items:center;gap:5px;font-size:.68rem;color:var(--text-secondary);cursor:pointer" title="Camera follows the ball in 3D"><input type="checkbox" id="followBall" checked style="accent-color:#5b7fff;cursor:pointer;margin:0">Follow ball</label>
           <select id="testSpeedSel" onchange="setTestSpeed(this.value)" style="background:var(--bg-input);color:var(--text-primary);border:1px solid var(--border);border-radius:6px;padding:5px 8px;font-size:.72rem">
             <option value="1" selected>1.0x Speed</option>
             <option value="1.5">1.5x Speed</option>
@@ -399,7 +435,7 @@
         </div>
       </div>
       <div class="test-env-body">
-        <div class="test-canvas-wrap">
+        <div class="test-canvas-wrap" id="test2DWrap">
           <canvas id="testEnvCanvas" width="760" height="380"></canvas>
           <div class="test-overlay-hud">
             <span id="hudTime">t=0.0s</span>
@@ -407,6 +443,16 @@
             <span id="hudStatus">Ready</span>
             <span class="test-hud-badge" id="hudResult" style="display:none"></span>
           </div>
+        </div>
+        <div class="test-canvas-wrap" id="test3DWrap" style="display:none;min-height:340px">
+          <div id="test3DContainer" style="position:absolute;inset:0"></div>
+          <div class="test-overlay-hud">
+            <span id="hudTime3D">t=0.0s</span>
+            <span>&middot;</span>
+            <span id="hudStatus3D">3D Ready</span>
+            <span class="test-hud-badge" id="hudResult3D" style="display:none"></span>
+          </div>
+          <div id="threeFallback" style="display:none;position:absolute;inset:0;align-items:center;justify-content:center;color:var(--text-secondary);font-size:.75rem;padding:20px;text-align:center"></div>
         </div>
         <div class="test-env-side">
           <div class="tes-hdr"><span>Test Rollouts History</span><span id="tesCount">1 run</span></div>
@@ -432,10 +478,20 @@ walk_on_ball:{l:'Walk on Ball',c:'tgrn',d:'&#9917; Tethered fly walks on floatin
 walk_imitation:{l:'Walk Imitation',c:'tblu',d:'&#128694; Fly tracks ghost walking reference. HDF5 data or inference mode.',p:'<div class="fr"><div class="fl">Reference Path (optional)</div><input type="text" id="p_rp" placeholder="None" onchange="upd()"></div><div class="fr"><div class="fl">Terminal CoM Dist <span class="vb" id="p_cL">0.300</span></div><input type="range" id="p_cd" min=".05" max="2.0" step=".05" value=".3" oninput="sr(this,&#39;p_cL&#39;,3);upd()"></div>',i:'from flybody.fly_envs import walk_imitation'},
 flight_imitation:{l:'Flight Imitation',c:'tpur',d:'&#9992;&#65039; Fly tracks aerobatic reference using WPG + optional HDF5 trajectories.',p:'<div class="fr"><div class="fl">Reference Path (optional)</div><input type="text" id="p_rp" placeholder="None" onchange="upd()"></div><div class="fr"><div class="fl">WPG Pattern Path (optional)</div><input type="text" id="p_wp" placeholder="None" onchange="upd()"></div><div class="fr"><div class="fl">Future Steps <span class="vb" id="p_fsL">5</span></div><input type="range" id="p_fs" min="0" max="20" step="1" value="5" oninput="sr(this,&#39;p_fsL&#39;,0);upd()"></div><div class="fr"><div class="fl">Terminal CoM Dist <span class="vb" id="p_cL">2.000</span></div><input type="range" id="p_cd" min=".5" max="10" step=".1" value="2" oninput="sr(this,&#39;p_cL&#39;,3);upd()"></div><div class="trow"><span class="tlbl">Disable Legs</span><label class="tog"><input type="checkbox" id="p_dl" checked onchange="upd()"><span class="slt"></span></label></div>',i:'from flybody.fly_envs import flight_imitation'},
 vision_guided_flight:{l:'Vision Flight',c:'tamb',d:'&#128065;&#65039; Vision-guided flight over sinusoidal terrain (bumps or trench).',p:'<div class="fr"><div class="fl">Terrain</div><select id="p_tr" onchange="upd()"><option value="bumps">Sine Bumps</option><option value="trench">Sine Trench</option></select></div><div class="fr"><div class="fl">WPG Pattern Path</div><input type="text" id="p_wp" placeholder="None" onchange="upd()"></div><div class="trow"><span class="tlbl">Disable Legs</span><label class="tog"><input type="checkbox" id="p_dl" checked onchange="upd()"><span class="slt"></span></label></div>',i:'from flybody.fly_envs import vision_guided_flight'},
-football_vs:{l:'Football Vs',c:'tamb',d:'&#127944; Team fly football. West attacks east, east attacks west. Pass/shot/interception rewards. Modes: static / scripted / self-play.',p:'<div class="fr"><div class="fl">Opponent Mode</div><select id="p_om" onchange="upd()"><option value="static">Static</option><option value="scripted">Scripted</option><option value="self_play">Self-Play</option></select></div><div class="fr"><div class="fl">Players Per Team</div><select id="p_npt" onchange="upd()"><option value="1">1v1</option><option value="2">2v2</option><option value="3">3v3</option><option value="4">4v4</option><option value="5">5v5</option></select></div><div class="fr"><div class="fl">Formation</div><select id="p_fm" onchange="upd()"><option value="fixed">Fixed Line</option><option value="random">Random Each Episode</option></select></div><div class="fr"><div class="fl">Field Length cm <span class="vb" id="p_flL">4.0</span></div><input type="range" id="p_fl" min="2" max="10" step=".5" value="4" oninput="sr(this,&#39;p_flL&#39;,1);upd()"></div><div class="fr"><div class="fl">Field Width cm <span class="vb" id="p_fwL">3.0</span></div><input type="range" id="p_fw" min="1" max="8" step=".5" value="3" oninput="sr(this,&#39;p_fwL&#39;,1);upd()"></div><div class="fr"><div class="fl">Ball Radius cm <span class="vb" id="p_brL">0.150</span></div><input type="range" id="p_br" min=".05" max=".5" step=".01" value=".15" oninput="sr(this,&#39;p_brL&#39;,3);upd()"></div><div class="fr"><div class="fl">Time Limit s <span class="vb" id="p_tlL">10.0</span></div><input type="range" id="p_tl" min="2" max="60" step="1" value="10" oninput="sr(this,&#39;p_tlL&#39;,1);upd()"></div>',i:'from flybody.fly_envs import football_vs'},
+football_vs:{l:'Football Vs',c:'tamb',d:'&#127944; Team fly football. West attacks east, east attacks west. Pass/shot/interception rewards. Modes: static / scripted / self-play / role self-play (1 goalkeeper + 1 attacker per team, forces 2v2).',p:'<div class="fr"><div class="fl">Opponent Mode</div><select id="p_om" onchange="syncRole();upd()"><option value="static">Static</option><option value="scripted">Scripted</option><option value="self_play">Self-Play</option><option value="role_self_play">Role Self-Play (GK+ATK 2v2)</option></select></div><div class="fr"><div class="fl">Players Per Team <span class="tip" data-tip="Role Self-Play trains 1 goalkeeper + 1 attacker per side, so it forces 2v2">?</span></div><select id="p_npt" onchange="syncRole();upd()"><option value="1">1v1</option><option value="2">2v2</option><option value="3">3v3</option><option value="4">4v4</option><option value="5">5v5</option></select></div><div class="fr" id="roleNote" style="display:none;font-size:.68rem;color:var(--accent-amber);line-height:1.5">&#129309; Role Self-Play: west_0/east_0 are attackers, west_1/east_1 are goalkeepers. Per-fly rewards via <span style="font-family:monospace">get_role_rewards</span>.</div><div class="fr"><div class="fl">Formation</div><select id="p_fm" onchange="upd()"><option value="fixed">Fixed Line</option><option value="random">Random Each Episode</option></select></div><div class="fr"><div class="fl">Field Length cm <span class="vb" id="p_flL">4.0</span></div><input type="range" id="p_fl" min="2" max="10" step=".5" value="4" oninput="sr(this,&#39;p_flL&#39;,1);upd()"></div><div class="fr"><div class="fl">Field Width cm <span class="vb" id="p_fwL">3.0</span></div><input type="range" id="p_fw" min="1" max="8" step=".5" value="3" oninput="sr(this,&#39;p_fwL&#39;,1);upd()"></div><div class="fr"><div class="fl">Ball Radius cm <span class="vb" id="p_brL">0.150</span></div><input type="range" id="p_br" min=".05" max=".5" step=".01" value=".15" oninput="sr(this,&#39;p_brL&#39;,3);upd()"></div><div class="fr"><div class="fl">Time Limit s <span class="vb" id="p_tlL">10.0</span></div><input type="range" id="p_tl" min="2" max="60" step="1" value="10" oninput="sr(this,&#39;p_tlL&#39;,1);upd()"></div>',i:'from flybody.fly_envs import football_vs'},
 template_task:{l:'Template Task',c:'tgrn',d:'&#129514; Empty no-op walking task for custom reward prototyping.',p:'<div class="fr"><div class="fl">Time Limit s <span class="vb" id="p_tlL">1.0</span></div><input type="range" id="p_tl" min=".5" max="20" step=".5" value="1" oninput="sr(this,&#39;p_tlL&#39;,1);upd()"></div><div class="fr"><div class="fl">Adhesion Filter <span class="vb" id="p_afL">0.007</span></div><input type="range" id="p_af" min="0" max=".05" step=".001" value=".007" oninput="sr(this,&#39;p_afL&#39;,3);upd()"></div>',i:'from flybody.fly_envs import template_task'}
 };
 let cur='walk_imitation',isTr=false,trTm=null,prg=0;
+let curAgent='dmpo';
+const AGENT_DESC={dmpo:'Distributed off-policy DMPO on Ray (needs TF + GPU learner).',ppo:'On-policy PPO on torch CPU: parallel rollout workers, clipped surrogate + GAE. No Ray/TF needed.'};
+function selAgent(b){
+  document.querySelectorAll('#agentGrid .tbtn').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');
+  curAgent=b.dataset.agent;
+  const d=document.getElementById('agentDesc');
+  if(d)d.innerHTML=AGENT_DESC[curAgent]||'';
+  upd();
+}
 const g=id=>{const e=document.getElementById(id);return e?e.value:'';};
 const gc=id=>{const e=document.getElementById(id);return e?e.checked:false;};
 // Convert JS boolean to Python boolean string
@@ -463,14 +519,79 @@ function selT(b){
 function togML(){document.getElementById('mlOpts').style.display=gc('mlOn')?'':'none';}
 function showT(n){['s','c','e'].forEach(t=>{document.getElementById('tab-'+t).classList.toggle('active',t===n);document.getElementById('pane-'+t).style.display=t===n?'':'none';});}
 function tArgs(){const fa=gc('fAct'),dw=gc('dWin'),jf=parseFloat(g('jf')||.01);switch(cur){
-case'walk_on_ball':return'    env=walk_on_ball(\n        force_actuators='+fa+',\n        disable_wings='+dw+',\n    )';
-case'walk_imitation':{const rp=g('p_rp'),cd=parseFloat(g('p_cd')||.3).toFixed(3);return'    env=walk_imitation('+(rp?"\n        ref_path='"+rp+"',":'')+'\n        terminal_com_dist='+cd+',\n        force_actuators='+fa+',\n        disable_wings='+dw+',\n        joint_filter='+jf+',\n    )';}
-case'flight_imitation':{const fs=g('p_fs')||5,cd=parseFloat(g('p_cd')||2).toFixed(3),dl=gc('p_dl');return'    env=flight_imitation(\n        future_steps='+fs+',\n        terminal_com_dist='+cd+',\n        force_actuators='+fa+',\n        disable_legs='+dl+',\n        joint_filter='+jf+',\n    )';}
-case'vision_guided_flight':{const tr=g('p_tr')||'bumps',dl=gc('p_dl');return'    env=vision_guided_flight(\n        bumps_or_trench=\''+tr+'\',\n        force_actuators='+fa+',\n        disable_legs='+dl+',\n        joint_filter='+jf+',\n    )';}
-case'football_vs':{const om=g('p_om')||'static',npt=parseInt(g('p_npt'))||1,fm=g('p_fm')||'fixed',fl=parseFloat(g('p_fl')||4).toFixed(1),fw=parseFloat(g('p_fw')||3).toFixed(1),br=parseFloat(g('p_br')||.15).toFixed(3),tl=parseFloat(g('p_tl')||10).toFixed(1);return'    env=football_vs(\n        opponent_mode=\''+om+'\',\n        n_per_team='+npt+',\n        formation_mode=\''+fm+'\',\n        field_length='+fl+',\n        field_width='+fw+',\n        ball_radius='+br+',\n        time_limit='+tl+',\n        force_actuators='+fa+',\n        disable_wings='+dw+',\n        joint_filter='+jf+',\n    )';}
-case'template_task':{const tl=parseFloat(g('p_tl')||1).toFixed(1),af=parseFloat(g('p_af')||.007).toFixed(3);return'    env=template_task(\n        force_actuators='+fa+',\n        disable_wings='+dw+',\n        joint_filter='+jf+',\n        adhesion_filter='+af+',\n        time_limit='+tl+',\n    )';}}}
+case'walk_on_ball':return'    env=walk_on_ball(\n        force_actuators='+py(fa)+',\n        disable_wings='+py(dw)+',\n    )';
+case'walk_imitation':{const rp=g('p_rp'),cd=parseFloat(g('p_cd')||.3).toFixed(3);return'    env=walk_imitation('+(rp?"\n        ref_path='"+rp+"',":'')+'\n        terminal_com_dist='+cd+',\n        force_actuators='+py(fa)+',\n        disable_wings='+py(dw)+',\n        joint_filter='+jf+',\n    )';}
+case'flight_imitation':{const fs=g('p_fs')||5,cd=parseFloat(g('p_cd')||2).toFixed(3),dl=gc('p_dl');return'    env=flight_imitation(\n        future_steps='+fs+',\n        terminal_com_dist='+cd+',\n        force_actuators='+py(fa)+',\n        disable_legs='+py(dl)+',\n        joint_filter='+jf+',\n    )';}
+case'vision_guided_flight':{const tr=g('p_tr')||'bumps',dl=gc('p_dl');return'    env=vision_guided_flight(\n        bumps_or_trench=\''+tr+'\',\n        force_actuators='+py(fa)+',\n        disable_legs='+py(dl)+',\n        joint_filter='+jf+',\n    )';}
+case'football_vs':{const om=g('p_om')||'static',npt=(om==='role_self_play'?2:(parseInt(g('p_npt'))||1)),fm=g('p_fm')||'fixed',fl=parseFloat(g('p_fl')||4).toFixed(1),fw=parseFloat(g('p_fw')||3).toFixed(1),br=parseFloat(g('p_br')||.15).toFixed(3),tl=parseFloat(g('p_tl')||10).toFixed(1);return'    env=football_vs(\n        opponent_mode=\''+om+'\',\n        n_per_team='+npt+',\n        formation_mode=\''+fm+'\',\n        field_length='+fl+',\n        field_width='+fw+',\n        ball_radius='+br+',\n        time_limit='+tl+',\n        force_actuators='+py(fa)+',\n        disable_wings='+py(dw)+',\n        joint_filter='+jf+',\n    )';}
+case'template_task':{const tl=parseFloat(g('p_tl')||1).toFixed(1),af=parseFloat(g('p_af')||.007).toFixed(3);return'    env=template_task(\n        force_actuators='+py(fa)+',\n        disable_wings='+py(dw)+',\n        joint_filter='+jf+',\n        adhesion_filter='+af+',\n        time_limit='+tl+',\n    )';}}}
+// Picklable env description for the PPO backend (scripts/ppo_torch.py).
+// Mirrors tArgs() so the GUI task parameters carry over one-to-one.
+function eDesc(){const fa=gc('fAct'),dw=gc('dWin'),jf=parseFloat(g('jf')||.01);switch(cur){
+case'walk_on_ball':return"{'task': 'walk_on_ball', 'kwargs': {'force_actuators': "+py(fa)+", 'disable_wings': "+py(dw)+"}}";
+case'walk_imitation':{const rp=g('p_rp'),cd=parseFloat(g('p_cd')||.3);return"{'task': 'walk_imitation', 'kwargs': {"+(rp?"'ref_path': '"+rp+"', ":'')+"'terminal_com_dist': "+cd+", 'force_actuators': "+py(fa)+", 'disable_wings': "+py(dw)+", 'joint_filter': "+jf+"}}";}
+case'flight_imitation':{const fs=g('p_fs')||5,cd=parseFloat(g('p_cd')||2),dl=gc('p_dl');return"{'task': 'flight_imitation', 'kwargs': {'future_steps': "+fs+", 'terminal_com_dist': "+cd+", 'force_actuators': "+py(fa)+", 'disable_legs': "+py(dl)+", 'joint_filter': "+jf+"}}";}
+case'vision_guided_flight':{const tr=g('p_tr')||'bumps',dl=gc('p_dl');return"{'task': 'vision_guided_flight', 'kwargs': {'bumps_or_trench': '"+tr+"', 'force_actuators': "+py(fa)+", 'disable_legs': "+py(dl)+", 'joint_filter': "+jf+"}}";}
+case'football_vs':{const om=g('p_om')||'static',npt=(om==='role_self_play'?2:(parseInt(g('p_npt'))||1)),fm=g('p_fm')||'fixed',fl=parseFloat(g('p_fl')||4),fw=parseFloat(g('p_fw')||3),br=parseFloat(g('p_br')||.15),tl=parseFloat(g('p_tl')||10);return"{'task': 'football_vs', 'kwargs': {'opponent_mode': '"+om+"', 'n_per_team': "+npt+", 'formation_mode': '"+fm+"', 'field_length': "+fl+", 'field_width': "+fw+", 'ball_radius': "+br+", 'time_limit': "+tl+", 'force_actuators': "+py(fa)+", 'disable_wings': "+py(dw)+", 'joint_filter': "+jf+"}}";}
+case'template_task':{const tl=parseFloat(g('p_tl')||1),af=parseFloat(g('p_af')||.007);return"{'task': 'template_task', 'kwargs': {'force_actuators': "+py(fa)+", 'disable_wings': "+py(dw)+", 'joint_filter': "+jf+", 'adhesion_filter': "+af+", 'time_limit': "+tl+"}}";}}}
+function genPpo(t){
+const pw=g('pW')||8,steps=g('pSteps')||512,ep=g('pEp')||3,mb=g('pMB')||512;
+const clip=parseFloat(g('pClip')||.2).toFixed(3),lam=parseFloat(g('pLam')||.95).toFixed(3);
+const vc=parseFloat(g('pVC')||.5).toFixed(2),ec=parseFloat(g('pEC')||.01).toFixed(3);
+const ls=parseFloat(g('pLS')||-.5).toFixed(2),gn=parseFloat(g('pGN')||.5).toFixed(2);
+const pl1=g('pL1')||256,pl2=g('pL2')||256,pl3=g('pL3')||256,cl1=g('cL1')||512,cl2=g('cL2')||512,cl3=g('cL3')||256;
+const aLR=g('polLR')||'1e-4',cLR=g('critLR')||'1e-4';
+const disc=parseFloat(g('disc')||.99).toFixed(4);
+const dir=(g('ppoDir')||'runs/ppo1').replace(/\\/g,'/'),rs=gc('ppoResume'),seed=g('ppoSeed')||0;
+const ed=eDesc();
+return `"""PPO Training: ${t.l}
+Auto-generated by FlyBody RL Trainer GUI (agent: PPO, torch CPU)
+On-policy PPO with GAE: parallel rollout workers collect trajectories,
+then minibatch SGD on the clipped surrogate + value + entropy losses.
+Needs torch (CPU fine). No Ray / TF required.
+"""
+import os
+import sys
+import flybody
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(flybody.__file__))), 'scripts'))
+try:
+    from ppo_torch import run_ppo
+except ImportError as e:
+    raise SystemExit(
+        'PPO needs PyTorch plus the repo scripts/ directory. Install an '
+        'editable repo (pip install -e .) and torch (pip install torch), or '
+        'run the equivalent CLI: python -m scripts.train_ppo --task ${cur}. '
+        'Original error: ' + str(e))
+
+TASK = '${cur}'
+ENV_DESC = ${ed}
+CFG = {
+    'workers': ${pw},
+    'rollout_steps': ${steps},
+    'epochs': ${ep},
+    'minibatch_size': ${mb},
+    'clip_eps': ${clip},
+    'gamma': ${disc},
+    'gae_lambda': ${lam},
+    'value_coef': ${vc},
+    'entropy_coef': ${ec},
+    'actor_lr': ${aLR},
+    'critic_lr': ${cLR},
+    'max_grad_norm': ${gn},
+    'policy_sizes': (${pl1}, ${pl2}, ${pl3}),
+    'critic_sizes': (${cl1}, ${cl2}, ${cl3}),
+    'init_log_std': ${ls},
+    'seed': ${seed},
+}
+
+def main():
+    run_ppo(ENV_DESC, CFG, run_dir='${dir}', resume=${py(rs)}, max_iters=None)
+
+if __name__ == '__main__':
+    main()`;}
 function gen(){
 const t=TK[cur];
+if(curAgent==='ppo')return genPpo(t);
 const na=g('na')||32,bs=g('bs')||256,pf=g('pf')||4,nls=g('nls')||100,mrs=g('mrs')||10000,mxrs=g('mxrs')||4000000,spi=g('spi')||15,nst=g('nst')||5,disc=parseFloat(g('disc')||.99).toFixed(4),nsm=g('nsm')||20;
 const pl1=g('pL1')||256,pl2=g('pL2')||256,pl3=g('pL3')||256,cl1=g('cL1')||512,cl2=g('cL2')||512,cl3=g('cL3')||256,vmn=g('vmn')||-150,vmx=g('vmx')||150,at=g('at')||51;
 const isc=parseFloat(g('isc')||.7).toFixed(3),minSc=g('minSc')||'1e-6',tanhM=gc('tanhM'),fixSc=gc('fixSc'),tfdI=gc('tfdI');
@@ -574,16 +695,33 @@ for a in actors: a.run(block=False)
 ev.run(block=False)
 while True: lrn.run(block=True)`;}
 function upd(){
+  syncRole();
+  const isPPO=curAgent==='ppo';
+  ['cardReplay','cardMpo','cardPeriods','cardDist'].forEach(id=>{const e=document.getElementById(id);if(e)e.style.display=isPPO?'none':'';});
+  const sl=document.getElementById('stitLoss');if(sl)sl.style.display=isPPO?'none':'';
+  const sp2=document.getElementById('stitPeriods');if(sp2)sp2.style.display=isPPO?'none':'';
+  const pc=document.getElementById('cardPpo');if(pc)pc.style.display=isPPO?'':'none';
   document.getElementById('sPrv').textContent=gen();
-  document.getElementById('cPrv').textContent='# Activate conda env\nconda activate flybody\n\n# Run the generated script\npython train_'+cur+'_custom.py\n\n# Test mode (1 actor, verbose)\npython flybody/train_dmpo_ray.py --test\n\n# Submit to existing Ray cluster\nray job submit --address auto -- python train_'+cur+'_custom.py\n\n# Monitor at http://localhost:8265\n\n# Record a video of a trained ARS policy (CPU, no Ray needed)\npython -m scripts.rollout_football_video --policy-npz runs/ars1/best.npz --out trained.mp4';
-  document.getElementById('ePrv').textContent='# Required env vars\nexport MUJOCO_GL=egl\nexport MUJOCO_EGL_DEVICE_ID=0\nexport TF_FORCE_GPU_ALLOW_GROWTH=true\n\n# cuDNN (update path as needed)\nCUDNN_PATH=$(dirname $(python -c \"import nvidia.cudnn;print(nvidia.cudnn.__file__)\"))\nexport LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib/:$CUDNN_PATH/lib\n\n# Install with Ray support\npip install -e .[ray]';
-  document.getElementById('stA').textContent=g('na')||32;
-  document.getElementById('stB').textContent=g('bs')||256;
-  document.getElementById('stS').textContent=(g('spi')||15)+'x';
-  document.getElementById('stG').textContent=parseFloat(g('disc')||.99).toFixed(3);
+  const chipK=(id,dmpo,ppo)=>{const e=document.getElementById(id);if(e)e.textContent=isPPO?ppo:dmpo;};
+  chipK('stAK','Actors','Workers');chipK('stBK','Batch','Minibatch');chipK('stSK','SPI','Steps');chipK('stGK','Gamma','Gamma');
+  if(isPPO){
+    const dir=(g('ppoDir')||'runs/ppo1');
+    document.getElementById('cPrv').textContent='# Activate conda env\nconda activate flybody\n\n# CPU PPO training: torch, no Ray needed\npython train_'+cur+'_ppo.py\n\n# Same run via the repo CLI (equivalent)\npython -m scripts.train_ppo --task '+cur+' --run-dir '+dir+' --iters 5 --workers '+(g('pW')||8)+'\n\n# Resume from latest.pt (or tick Resume From Run Dir in the driver)\npython -m scripts.train_ppo --task '+cur+' --run-dir '+dir+' --resume --iters 5';
+    document.getElementById('stA').textContent=g('pW')||8;
+    document.getElementById('stB').textContent=g('pMB')||512;
+    document.getElementById('stS').textContent=(g('pSteps')||512)+' st';
+    document.getElementById('stG').textContent=parseFloat(g('disc')||.99).toFixed(3);
+  }else{
+    document.getElementById('cPrv').textContent='# Activate conda env\nconda activate flybody\n\n# Run the generated script\npython train_'+cur+'_dmpo.py\n\n# Test mode (1 actor, verbose)\npython flybody/train_dmpo_ray.py --test\n\n# Submit to existing Ray cluster\nray job submit --address auto -- python train_'+cur+'_dmpo.py\n\n# Monitor at http://localhost:8265\n\n# Record a video of a trained ARS policy (CPU, no Ray needed)\npython -m scripts.rollout_football_video --policy-npz runs/ars1/best.npz --out trained.mp4';
+    document.getElementById('stA').textContent=g('na')||32;
+    document.getElementById('stB').textContent=g('bs')||256;
+    document.getElementById('stS').textContent=(g('spi')||15)+'x';
+    document.getElementById('stG').textContent=parseFloat(g('disc')||.99).toFixed(3);
+  }
+  document.getElementById('ePrv').textContent='# Required env vars\nexport MUJOCO_GL=egl\nexport MUJOCO_EGL_DEVICE_ID=0\nexport TF_FORCE_GPU_ALLOW_GROWTH=true\n\n# cuDNN (update path as needed)\nCUDNN_PATH=$(dirname $(python -c "import nvidia.cudnn;print(nvidia.cudnn.__file__)"))\nexport LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib/:$CUDNN_PATH/lib\n\n# Install with Ray support\npip install -e .[ray]'+(isPPO?'\n\n# PPO instead needs torch (CPU fine)\npip install torch --index-url https://download.pytorch.org/whl/cpu':'');
 }
 function cpyS(){navigator.clipboard.writeText(gen()).then(()=>addL('Script copied.','ok'));}
-function savS(){const b=new Blob([gen()],{type:'text/x-python'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download='train_'+cur+'_custom.py';a.click();URL.revokeObjectURL(u);addL('Saved train_'+cur+'_custom.py','ok');}
+function savS(){const fn='train_'+cur+'_'+curAgent+'.py';const b=new Blob([gen()],{type:'text/x-python'});const u=URL.createObjectURL(b);const a=document.createElement('a');a.href=u;a.download=fn;a.click();URL.revokeObjectURL(u);addL('Saved '+fn,'ok');}
 // ===== Simulated Log Messages =====
 const LM=[['ok','Ray cluster initialized.'],['if','Replay Server started on :49152'],['if','Learner process ready (GPU:0)'],['if','Creating actor processes...'],['ok','All actors ready. Starting training loop.'],['if','Step 100 | policy_loss=-0.31 | critic_loss=0.87'],['if','Episode return: 0.14 | steps: 4800'],['wn','Replay buffer nearing capacity.'],['if','Step 200 | policy_loss=-0.49 | critic_loss=0.63'],['ok','Checkpoint saved.'],['if','Evaluator return: 0.27'],['if','Step 300 | sps_learner=142.3'],['if','Actor return: 0.39 | steps: 38400'],['ok','Snapshot saved.'],['if','Step 400 | acting-to-learning=11.4x']];
 let lmi=0;
@@ -681,14 +819,29 @@ function toggleTestPause(){
 
 function curNTeam(){
   if(cur !== 'football_vs') return 1;
+  if(g('p_om') === 'role_self_play') return 2;
   const n = parseInt(g('p_npt')) || 1;
   return Math.max(1, Math.min(5, n));
 }
 
+// Role Self-Play (1 goalkeeper + 1 attacker per team) requires n_per_team=2,
+// mirroring the backend FootballVs validation.
+function isRoleMode(){ return cur === 'football_vs' && g('p_om') === 'role_self_play'; }
+function syncRole(){
+  if(cur !== 'football_vs') return;
+  const note = document.getElementById('roleNote');
+  if(g('p_om') === 'role_self_play'){
+    const npt = document.getElementById('p_npt');
+    if(npt) npt.value = '2';
+    if(note) note.style.display = '';
+  } else if(note) note.style.display = 'none';
+}
+function roleTrialSuffix(nn){ return isRoleMode() ? ' · Role 2v2 (GK+ATK)' : ' · ' + nn + 'v' + nn; }
+
 function runNewTestRollout(seed, label, skill){
   if(seed === undefined) seed = (Date.now() % 100000) + (++testTrialCount) * 19;
   const nn = curNTeam();
-  if(label === undefined) label = 'Test Trial #' + testTrialCount + (cur === 'football_vs' ? ' · ' + nn + 'v' + nn : '');
+  if(label === undefined) label = 'Test Trial #' + testTrialCount + (cur === 'football_vs' ? roleTrialSuffix(nn) : '');
   if(skill === undefined) skill = (typeof simRet !== 'undefined' ? simRet : 0.01);
   startTestRollout(seed, label, skill, true, nn);
   addL('▶ Test rollout #' + testTrialCount + ' (' + (TK[cur]?TK[cur].l:cur) + ') started [Skill: ' + skill.toFixed(3) + ']', 'if');
@@ -698,7 +851,7 @@ function runAnotherTrial(){
   testTrialCount++;
   const seed = Math.floor(Math.random() * 990000) + 1000;
   const nn = curNTeam();
-  const label = 'Trial #' + testTrialCount + ' (Seed #' + (seed % 999) + ')' + (cur === 'football_vs' ? ' · ' + nn + 'v' + nn : '');
+  const label = 'Trial #' + testTrialCount + ' (Seed #' + (seed % 999) + ')' + (cur === 'football_vs' ? roleTrialSuffix(nn) : '');
   const skill = (typeof simRet !== 'undefined' ? simRet : 0.01);
   startTestRollout(seed, label, skill, true, nn);
   addL('🎲 New test rollout trial #' + testTrialCount + ' started with fresh seed #' + (seed % 999), 'if');
@@ -865,6 +1018,33 @@ function resetFootballKickoff(state, W, H){
   state.gx = W * 0.86;
   state.gh = H * 0.38;
   state.ball = {x: W * 0.46 + (R() - 0.5) * 40, y: H * 0.5 + (R() - 0.5) * 40, vx: 0, vy: 0, r: 8.5};
+  // Role 2v2 kickoff: attackers take forward spots, goalkeepers start at
+  // home in front of their own goal — mirrors FootballVs role spawns.
+  if(state.roleMode){
+    state.formation = 'role 2v2 (GK+ATK)';
+    const wgxR = W - state.gx, cyR = H * 0.5, bxR = W * 0.46;
+    const jx = () => (R() - 0.5) * 20, jy = () => (R() - 0.5) * 20;
+    state.attackers = [
+      {x: bxR - 60 + jx(), y: cyR - 20 + jy(), angle: -Math.PI / 2, wing: R() * 6, leg: R() * 6, num: 1},
+      {x: wgxR + 45 + jx(), y: cyR + 25 + jy(), angle: -Math.PI / 2, wing: R() * 6, leg: R() * 6, num: 2, keeper: true},
+    ];
+    state.goalies = [
+      {x: bxR + 60 + jx(), y: cyR + 20 + jy(), angle: Math.PI / 2, wing: R() * 6, leg: R() * 6, num: 1},
+      {x: state.gx - 45 + jx(), y: cyR - 25 + jy(), angle: Math.PI / 2, wing: R() * 6, leg: R() * 6, num: 2, keeper: true},
+    ];
+    state.trail = [];
+    state.kicked = false;
+    state.lastPass = null;
+    state.poss = null;
+    state.kickCd = 0;
+    state.stealCd = 0;
+    state.foulShown = false;
+    state.time = 0;
+    state.done = false;
+    state.tail = 0;
+    state.outcome = 'Active Run';
+    return;
+  }
   // Formation: Fixed Line always deals the center face-off; Random Each
   // Episode (Formation selector) samples a fresh shape every kickoff from
   // the seeded RNG, so trials and replays stay reproducible per seed.
@@ -1013,6 +1193,8 @@ function startTestRollout(seed, label, skill, pushHistory = true, nTeamOverride)
     let nTeam = (typeof nTeamOverride === 'number') ? nTeamOverride : (parseInt(g('p_npt')) || 1);
     nTeam = Math.max(1, Math.min(5, nTeam));
     state.nTeam = nTeam;
+    // Role Self-Play: index 0 = attacker, index 1 = goalkeeper per team.
+    state.roleMode = (nTeam === 2 && typeof isRoleMode === 'function' && isRoleMode());
     state.score = {w: 0, e: 0};
     state.episode = 1;
     state.matchTime = 0;
@@ -1090,6 +1272,7 @@ function startTestRollout(seed, label, skill, pushHistory = true, nTeamOverride)
     }
 
     renderTestEnvironment(ctx, W, H, state);
+    if(viewMode === '3d') syncThree3D(state);
 
     const hudT = document.getElementById('hudTime');
     if(hudT){
@@ -1100,6 +1283,8 @@ function startTestRollout(seed, label, skill, pushHistory = true, nTeamOverride)
         hudTxt = 'W ' + state.score.w + ':' + state.score.e + ' E · EP ' + epTag + ' · ' + hudTxt;
       }
       hudT.textContent = hudTxt;
+      const hudT3 = document.getElementById('hudTime3D');
+      if(hudT3) hudT3.textContent = hudTxt;
     }
     const outEl = document.getElementById('tesOutcome');
     if(outEl) outEl.textContent = state.outcome;
@@ -1109,6 +1294,8 @@ function startTestRollout(seed, label, skill, pushHistory = true, nTeamOverride)
     } else {
       const hStat = document.getElementById('hudStatus');
       if(hStat) hStat.textContent = state.outcome;
+      const hStat3 = document.getElementById('hudStatus3D');
+      if(hStat3) hStat3.textContent = state.outcome;
     }
   }
 
@@ -1128,7 +1315,36 @@ function updateTestPhysics(state, dt, W, H){
   const R = state.R;
   if(state.task === 'football_vs'){
     const b = state.ball;
-    const gk = state.goalies[0];
+    const roleMode = !!state.roleMode;
+    const gk = roleMode ? state.goalies[1] : state.goalies[0];
+    const westGK = roleMode ? state.attackers[1] : null;
+    const wgxHome = W - state.gx;
+    // Goalkeeper hold: guard the mouth, track the ball line, step out only
+    // when the ball comes close. kickFn fires on genuine ball contact.
+    function keeperHold(f, homeX, kickFn){
+      f.wing += dt * 30;
+      f.leg += dt * 8;
+      const hy = Math.max(48, Math.min(H - 48, H * 0.5 + (b.y - H * 0.5) * 0.35));
+      // Leash to home (not to self): step out only while the ball threatens
+      // the mouth, otherwise hold position tracking the ball line.
+      const hd = Math.hypot(b.x - homeX, b.y - hy);
+      const tx = hd < 140 ? b.x : homeX;
+      const ty = hd < 140 ? b.y : hy;
+      const dx = tx - f.x, dy = ty - f.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const targetAng = Math.atan2(dy, dx) - Math.PI / 2;
+      f.angle = turnToward(f.angle, targetAng, Math.min(1, dt * (5 + skill * 7)));
+      const speed = 100 + skill * 100;
+      if(dist > 14){
+        f.x += Math.cos(f.angle + Math.PI / 2) * speed * dt;
+        f.y += Math.sin(f.angle + Math.PI / 2) * speed * dt;
+      }
+      f.x = Math.max(40, Math.min(W - 40, f.x));
+      f.y = Math.max(48, Math.min(H - 48, f.y));
+      if(Math.hypot(b.x - f.x, b.y - f.y) <= 20 && (!state.kicked || Math.abs(b.vx) < 60)){
+        kickFn(f);
+      }
+    }
 
     // --- West team: closest two chase, rest make support runs ahead ---
     function westKick(a){
@@ -1183,6 +1399,14 @@ function updateTestPhysics(state, dt, W, H){
     const chasePos = {};
     chaseRank.slice(0, Math.min(2, chaseRank.length)).forEach(function(o, k){ chasePos[o.ai] = k; });
     state.attackers.forEach(function(a, ai){
+      if(roleMode && a.keeper){
+        keeperHold(a, wgxHome + 32, function(f){
+          const wasEast = (state.poss === 'east');
+          westKick(f);
+          if(wasEast) setHudResult('SAVE W' + f.num + ' → CLEAR', '#fbbf24');
+        });
+        return;
+      }
       a.wing += dt * 35;
       a.leg += dt * (8 + skill * 12);
       if(chasePos[ai] !== undefined){
@@ -1249,6 +1473,22 @@ function updateTestPhysics(state, dt, W, H){
     const eastPos = {};
     eastRank.forEach(function(o, k){ eastPos[o.di] = k; });
     state.goalies.forEach(function(d, di){
+      if(roleMode && d.keeper){
+        keeperHold(d, state.gx - 32, function(f){
+          const incoming = b.vx > 40;
+          state.kicked = true;
+          state.kickCd = 0.6;
+          state.poss = 'east';
+          const aimError = (1 - skill) * (R() - 0.5) * 70;
+          const targetY = H * 0.5 + aimError;
+          const cAng = Math.atan2(targetY - b.y, (W - state.gx) - b.x);
+          const cSpd = 170 + skill * 120;
+          b.vx = Math.cos(cAng) * cSpd;
+          b.vy = Math.sin(cAng) * cSpd;
+          setHudResult((incoming ? 'SAVE E' : 'CLEAR E') + f.num, '#38bdf8');
+        });
+        return;
+      }
       d.wing += dt * 30;
       d.leg += dt * 8;
       const dspeed = 100 + skill * 100;
@@ -1411,9 +1651,16 @@ function updateTestPhysics(state, dt, W, H){
       }
     }
 
-    // Goal detection west (east team scores the counter)
+    // Goal detection west (east team scores the counter). In role mode the
+    // west keeper can genuinely block it when goal-side of the ball.
     if(!state.done && b.x <= (W - state.gx) + 12){
       if(Math.abs(b.y - H*0.5) <= state.gh * 0.5){
+        if(roleMode && westGK && Math.abs(b.y - westGK.y) < 18 && b.x > (W - state.gx) - 5 && westGK.x < b.x + 5){
+          state.outcome = 'SAVED BY WEST KEEPER';
+          state.done = true;
+          b.vx = -b.vx * 0.35;
+          setHudResult('SAVED', '#f59e0b');
+        } else {
         state.outcome = 'EAST SCORES!';
         state.done = true;
         setHudResult('EAST GOAL', '#38bdf8');
@@ -1421,9 +1668,10 @@ function updateTestPhysics(state, dt, W, H){
           state.particles.push({
             x: b.x, y: b.y,
             vx: (Math.random()-0.5)*180, vy: (Math.random()-0.5)*180,
-            col: ['#38bdf8','#facc15','#ffffff','#22c55e'][i%4],
-            life: 1.0
+              col: ['#38bdf8','#facc15','#ffffff','#22c55e'][i%4],
+              life: 1.0
           });
+          }
         }
       } else {
         state.outcome = 'WIDE WEST';
@@ -1535,6 +1783,13 @@ function setHudResult(text, color){
   hRes.style.display = 'inline-block';
   hRes.style.background = color || '#22c55e';
   hRes.style.color = '#000';
+  const hRes3 = document.getElementById('hudResult3D');
+  if(hRes3){
+    hRes3.textContent = text;
+    hRes3.style.display = 'inline-block';
+    hRes3.style.background = color || '#22c55e';
+    hRes3.style.color = '#000';
+  }
 }
 
 function renderTestEnvironment(ctx, W, H, state){
@@ -1627,14 +1882,22 @@ function renderTestEnvironment(ctx, W, H, state){
       ctx.stroke();
     }
 
-    // East team flies (blue, keeper first) with jersey numbers
+    // Role badges: attackers 'A1', goalkeepers 'G2' (gold) in role mode,
+    // plain jersey numbers otherwise.
+    function roleBadge(f){
+      if(state.roleMode) return {t: (f.keeper ? 'G' : 'A') + f.num, c: f.keeper ? '#fbbf24' : null};
+      return {t: f.num, c: null};
+    }
+    // East team flies (blue) with jersey numbers
     state.goalies.forEach(function(g){
-      drawFruitFlyTopDown(ctx, g.x, g.y, (typeof g.angle === 'number' ? g.angle : -Math.PI/2), g.wing, '#0284c7', 0.9, g.leg, g.num, '#7dd3fc');
+      const bd = roleBadge(g);
+      drawFruitFlyTopDown(ctx, g.x, g.y, (typeof g.angle === 'number' ? g.angle : -Math.PI/2), g.wing, '#0284c7', 0.9, g.leg, bd.t, bd.c || '#7dd3fc');
     });
 
     // West team flies (orange) with jersey numbers
     state.attackers.forEach(function(a){
-      drawFruitFlyTopDown(ctx, a.x, a.y, a.angle, a.wing, '#d97706', 1.0, a.leg, a.num, '#fcd34d');
+      const bd = roleBadge(a);
+      drawFruitFlyTopDown(ctx, a.x, a.y, a.angle, a.wing, '#d97706', 1.0, a.leg, bd.t, bd.c || '#fcd34d');
     });
 
   } else if(state.task === 'flight_imitation'){
@@ -1876,6 +2139,441 @@ function renderTestEnvironment(ctx, W, H, state){
   });
 }
 
+// ===== 3D Stadium Viewport (Three.js) =====
+// Renders the live rollout with a procedural 3D Drosophila model per fly
+// (thorax/head/abdomen/eyes/wings/legs + role badge) inside a 3D stadium:
+// striped pitch, goals with nets, ball with trail, floodlights, confetti.
+// Driven by the SAME sim state as the 2D canvas, so 2D and 3D never drift.
+let viewMode = '2d';
+let threeLoading = false;
+const CW3D = 760, CH3D = 380, PX3D = 0.062;
+const WX3D = x => (x - CW3D / 2) * PX3D;
+const WZ3D = y => (y - CH3D / 2) * PX3D;
+
+function setViewMode(m){
+  if(m === '3d' && !(window.__fb3d && window.__fb3d.ready)){ ensureThree3D(); return; }
+  viewMode = m;
+  const w2 = document.getElementById('test2DWrap'), w3 = document.getElementById('test3DWrap');
+  const b3 = document.getElementById('view3DBtn'), b2 = document.getElementById('view2DBtn');
+  if(w2) w2.style.display = m === '3d' ? 'none' : '';
+  if(w3) w3.style.display = m === '3d' ? '' : 'none';
+  if(b3) b3.style.display = m === '3d' ? 'none' : '';
+  if(b2) b2.style.display = m === '3d' ? '' : 'none';
+  if(m === '3d' && window.__fb3d && window.__fb3d.resize) window.__fb3d.resize();
+}
+
+async function ensureThree3D(){
+  if(window.__fb3d && window.__fb3d.ready){ setViewMode('3d'); return; }
+  if(threeLoading) return;
+  threeLoading = true;
+  try{
+    const THREE = await import('three');
+    const {OrbitControls} = await import('three/addons/controls/OrbitControls.js');
+    initThreeScene(THREE, OrbitControls);
+    threeLoading = false;
+    setViewMode('3d');
+    addL('3D stadium ready — drag to orbit, scroll to zoom.','ok');
+  }catch(err){
+    threeLoading = false;
+    const fb = document.getElementById('threeFallback');
+    if(fb){ fb.style.display = 'flex'; fb.textContent = '3D view needs network access for the Three.js CDN (' + err + '). Continuing in 2D.'; }
+    addL('3D view unavailable (CDN unreachable). Using 2D canvas.','wn');
+  }
+}
+
+function makePitchTexture(){
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 560;
+  const x = c.getContext('2d');
+  const u = X => (X + 24) / 48 * 1024, v = Z => (Z + 13) / 26 * 560;
+  const sx = 1024 / 48, sz = 560 / 26;
+  x.fillStyle = '#0e5f32'; x.fillRect(0, 0, 1024, 560);
+  x.fillStyle = '#106b38';
+  for(let i = 0; i < 10; i += 2) x.fillRect(i * 102.4, 0, 102.4, 560);
+  x.strokeStyle = 'rgba(255,255,255,.9)'; x.lineWidth = 4;
+  x.strokeRect(u(-22.2), v(-10.54), 44.4 * sx, 21.08 * sz);
+  x.beginPath(); x.moveTo(u(0), v(-10.54)); x.lineTo(u(0), v(10.54)); x.stroke();
+  x.beginPath(); x.arc(512, 280, 2.98 * sx, 0, Math.PI * 2); x.stroke();
+  x.fillStyle = '#fff'; x.beginPath(); x.arc(512, 280, 6, 0, Math.PI * 2); x.fill();
+  // Goal mouths (east +17 / west -17, half-mouth 4.45)
+  x.lineWidth = 6;
+  [[17], [-17]].forEach(([gx]) => {
+    x.strokeRect(gx > 0 ? u(gx) - 3 : u(gx) - 60, v(-4.45), 60, 8.9 * sz);
+  });
+  return c;
+}
+
+function makeBallTexture(){
+  const c = document.createElement('canvas'); c.width = 128; c.height = 128;
+  const x = c.getContext('2d');
+  x.fillStyle = '#f8fafc'; x.fillRect(0, 0, 128, 128);
+  x.fillStyle = '#1e293b';
+  [[64,64,20],[20,30,12],[108,28,12],[24,100,12],[104,100,12],[64,10,10],[64,118,10]].forEach(([px,py,r]) => {
+    x.beginPath(); x.arc(px, py, r, 0, Math.PI * 2); x.fill();
+  });
+  return c;
+}
+
+function makeNetTexture(){
+  const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+  const x = c.getContext('2d');
+  x.clearRect(0, 0, 64, 64);
+  x.strokeStyle = 'rgba(255,255,255,.8)'; x.lineWidth = 2;
+  for(let i = 0; i <= 64; i += 16){
+    x.beginPath(); x.moveTo(i, 0); x.lineTo(i, 64); x.stroke();
+    x.beginPath(); x.moveTo(0, i); x.lineTo(64, i); x.stroke();
+  }
+  return c;
+}
+
+function makeBadgeTexture(label, color){
+  const c = document.createElement('canvas'); c.width = 128; c.height = 128;
+  const x = c.getContext('2d');
+  x.fillStyle = 'rgba(0,0,0,.6)';
+  x.beginPath(); x.arc(64, 64, 52, 0, Math.PI * 2); x.fill();
+  x.strokeStyle = color; x.lineWidth = 6;
+  x.beginPath(); x.arc(64, 64, 52, 0, Math.PI * 2); x.stroke();
+  x.fillStyle = color; x.font = 'bold 56px Inter,sans-serif';
+  x.textAlign = 'center'; x.textBaseline = 'middle';
+  x.fillText(label, 64, 68);
+  return c;
+}
+
+// Procedural Drosophila (faces +Z): striped abdomen, team thorax, head
+// with red compound eyes + antennae, flapping translucent wings, 6
+// stepping legs, floating role badge. Mirrors the MuJoCo fly proportions.
+function buildFly3D(THREE, thoraxColor){
+  const g = new THREE.Group();
+  const std = (c, o) => new THREE.MeshStandardMaterial(Object.assign({color: c, roughness: 0.6, metalness: 0.1}, o || {}));
+  const bodyMat = std(0xb87333), darkMat = std(0x2b1809), thxMat = std(thoraxColor);
+  const add = (mesh, cast) => { mesh.castShadow = cast !== false; g.add(mesh); return mesh; };
+  const abd = add(new THREE.Mesh(new THREE.SphereGeometry(0.55, 20, 14), bodyMat));
+  abd.scale.set(0.85, 0.7, 1.3); abd.position.set(0, 0.95, -0.9);
+  for(let i = 0; i < 3; i++){
+    const stripe = add(new THREE.Mesh(new THREE.TorusGeometry(0.47 - i * 0.05, 0.045, 8, 20), darkMat));
+    stripe.position.set(0, 0.95, -0.7 - i * 0.32);
+    stripe.scale.set(0.85, 0.7, 1);
+  }
+  const thx = add(new THREE.Mesh(new THREE.SphereGeometry(0.55, 20, 14), thxMat));
+  thx.scale.set(1.0, 0.9, 1.15); thx.position.set(0, 1.0, 0.05);
+  const head = add(new THREE.Mesh(new THREE.SphereGeometry(0.4, 18, 12), std(0x5c3814)));
+  head.position.set(0, 1.05, 0.85);
+  const eyeMat = std(0xe11d48, {roughness: 0.25, emissive: 0x550000});
+  [-1, 1].forEach(s => {
+    const eye = add(new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 10), eyeMat));
+    eye.position.set(s * 0.22, 1.15, 1.05);
+    const ant = add(new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.45, 6), darkMat));
+    ant.position.set(s * 0.12, 1.25, 1.25); ant.rotation.x = 1.0; ant.rotation.z = s * 0.3;
+  });
+  // Wings: pivots at the thorax, translucent membranes flapping around Z.
+  const wingMat = new THREE.MeshStandardMaterial({color: 0xd7ebff, transparent: true, opacity: 0.55, side: THREE.DoubleSide, roughness: 0.3});
+  const wings = {};
+  [-1, 1].forEach(s => {
+    const pivot = new THREE.Group();
+    pivot.position.set(s * 0.15, 1.2, 0.0);
+    const wgeo = new THREE.PlaneGeometry(1.05, 0.55);
+    wgeo.translate(s * 0.55, 0, 0);
+    const w = new THREE.Mesh(wgeo, wingMat);
+    w.rotation.x = -Math.PI / 2; w.rotation.y = s * -0.35;
+    pivot.add(w); g.add(pivot);
+    wings[s < 0 ? 'L' : 'R'] = pivot;
+  });
+  // Legs: 6 pivots animated in tripod gait.
+  const legs = [];
+  const legZ = [-0.45, 0.05, 0.55];
+  [-1, 1].forEach(s => legZ.forEach((lz, k) => {
+    const pivot = new THREE.Group();
+    pivot.position.set(s * 0.4, 0.8, lz);
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.035, 1.0, 6), darkMat);
+    leg.position.set(s * 0.3, -0.45, (k - 1) * 0.12);
+    leg.rotation.z = s * 0.7;
+    leg.castShadow = true;
+    pivot.add(leg); g.add(pivot);
+    legs.push({pivot, off: ((s > 0 ? 1 : 0) + k) % 2 ? 0 : Math.PI});
+  }));
+  // Role badge sprite.
+  const badgeCanvas = document.createElement('canvas');
+  badgeCanvas.width = 128; badgeCanvas.height = 128;
+  const badgeTex = new THREE.CanvasTexture(badgeCanvas);
+  const badge = new THREE.Sprite(new THREE.SpriteMaterial({map: badgeTex, depthTest: false, transparent: true}));
+  badge.scale.set(1.5, 1.5, 1); badge.position.set(0, 2.6, 0);
+  g.add(badge);
+  thx.userData.thorax = true;
+  return {
+    group: g, wings, legs, thoraxMat: thxMat, badgeText: null, _thx: thoraxColor,
+    setBadge(label, color){
+      if(label === this.badgeText) return;
+      this.badgeText = label;
+      const x = badgeCanvas.getContext('2d');
+      x.clearRect(0, 0, 128, 128);
+      x.drawImage(makeBadgeTexture(label, color), 0, 0);
+      badgeTex.needsUpdate = true;
+    }
+  };
+}
+
+function buildGoal3D(THREE, netTex, side){
+  // side: +1 east (x=+17), -1 west (x=-17). Mouth half-width 4.45, height 2.2.
+  const grp = new THREE.Group();
+  const postMat = new THREE.MeshStandardMaterial({color: 0xffffff, roughness: 0.4});
+  const gx = side * 17;
+  [-4.45, 4.45].forEach(z => {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 2.2, 10), postMat);
+    post.position.set(gx, 1.1, z); post.castShadow = true; grp.add(post);
+  });
+  const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 9.1, 10), postMat);
+  bar.rotation.x = Math.PI / 2; bar.position.set(gx, 2.2, 0); bar.castShadow = true; grp.add(bar);
+  const netMat = new THREE.MeshBasicMaterial({map: netTex, transparent: true, opacity: 0.5, side: THREE.DoubleSide});
+  const back = new THREE.Mesh(new THREE.PlaneGeometry(8.9, 2.2), netMat);
+  back.position.set(gx + side * 1.2, 1.1, 0); back.rotation.y = Math.PI / 2; grp.add(back);
+  const top = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 8.9), netMat);
+  top.rotation.x = Math.PI / 2; top.rotation.z = Math.PI / 2;
+  top.position.set(gx + side * 0.6, 2.2, 0); grp.add(top);
+  return grp;
+}
+
+function initThreeScene(THREE, OrbitControls){
+  const container = document.getElementById('test3DContainer');
+  const renderer = new THREE.WebGLRenderer({antialias: true});
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  container.appendChild(renderer.domElement);
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x070b16);
+  scene.fog = new THREE.Fog(0x070b16, 80, 170);
+  const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 500);
+  camera.position.set(0, 27, 35);
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true; controls.dampingFactor = 0.08;
+  controls.maxPolarAngle = Math.PI * 0.49;
+  controls.minDistance = 8; controls.maxDistance = 130;
+  controls.target.set(0, 0, 0);
+
+  scene.add(new THREE.HemisphereLight(0x8fb4ff, 0x0a2018, 0.75));
+  const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+  sun.position.set(25, 38, 18);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.camera.left = -32; sun.shadow.camera.right = 32;
+  sun.shadow.camera.top = 32; sun.shadow.camera.bottom = -32;
+  sun.shadow.camera.far = 120;
+  scene.add(sun);
+  const fill = new THREE.PointLight(0x5b7fff, 400, 120);
+  fill.position.set(-20, 14, -14); scene.add(fill);
+
+  // Surroundings + pitch.
+  const ground = new THREE.Mesh(
+    new THREE.PlaneGeometry(320, 320),
+    new THREE.MeshStandardMaterial({color: 0x0a0f1e, roughness: 1})
+  );
+  ground.rotation.x = -Math.PI / 2; ground.position.y = -0.08; ground.receiveShadow = true;
+  scene.add(ground);
+  const pitchTex = new THREE.CanvasTexture(makePitchTexture());
+  pitchTex.colorSpace = THREE.SRGBColorSpace;
+  pitchTex.anisotropy = 4;
+  const pitch = new THREE.Mesh(
+    new THREE.PlaneGeometry(48, 26),
+    new THREE.MeshStandardMaterial({map: pitchTex, roughness: 0.9})
+  );
+  pitch.rotation.x = -Math.PI / 2; pitch.receiveShadow = true;
+  scene.add(pitch);
+  const gridHelper = new THREE.GridHelper(60, 30, 0x2a3050, 0x161928);
+  gridHelper.position.y = 0.01; gridHelper.visible = false;
+  scene.add(gridHelper);
+
+  const netTex = new THREE.CanvasTexture(makeNetTexture());
+  scene.add(buildGoal3D(THREE, netTex, 1));
+  scene.add(buildGoal3D(THREE, netTex, -1));
+
+  // Floodlight pylons.
+  const poleMat = new THREE.MeshStandardMaterial({color: 0x1e2438, roughness: 0.7});
+  const lampMat = new THREE.MeshStandardMaterial({color: 0xffffff, emissive: 0xcfe6ff, emissiveIntensity: 2.2});
+  [[-27, -17], [27, -17], [-27, 17], [27, 17]].forEach(([px, pz]) => {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.35, 19, 8), poleMat);
+    pole.position.set(px, 9.5, pz); scene.add(pole);
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.9, 12, 10), lampMat);
+    lamp.position.set(px, 19.4, pz); scene.add(lamp);
+  });
+
+  // Ball with pentagon texture + possession ring.
+  const ballTex = new THREE.CanvasTexture(makeBallTexture());
+  ballTex.colorSpace = THREE.SRGBColorSpace;
+  const ball = new THREE.Mesh(
+    new THREE.SphereGeometry(0.53, 24, 18),
+    new THREE.MeshStandardMaterial({map: ballTex, roughness: 0.45})
+  );
+  ball.castShadow = true; scene.add(ball);
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.85, 0.07, 10, 32),
+    new THREE.MeshBasicMaterial({color: 0xfbbf24})
+  );
+  ring.rotation.x = Math.PI / 2; scene.add(ring);
+
+  // Ball trail.
+  const trailGeo = new THREE.BufferGeometry();
+  trailGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(18 * 3), 3));
+  const trail = new THREE.Line(trailGeo, new THREE.LineBasicMaterial({color: 0xffffff, transparent: true, opacity: 0.35}));
+  scene.add(trail);
+
+  // Goal confetti particles.
+  const PMAX = 90;
+  const pGeo = new THREE.BufferGeometry();
+  pGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(PMAX * 3), 3));
+  const pCol = new THREE.BufferAttribute(new Float32Array(PMAX * 3), 3);
+  pGeo.setAttribute('color', pCol);
+  const points = new THREE.Points(pGeo, new THREE.PointsMaterial({size: 0.4, vertexColors: true, transparent: true, opacity: 0.95}));
+  scene.add(points);
+
+  // Fly pool: up to 5v5 (10 match flies); spare slots double as the
+  // single-fly preview for non-football tasks.
+  const flies = [];
+  for(let i = 0; i < 10; i++){
+    const f = buildFly3D(THREE, 0xd97706);
+    f.group.visible = false;
+    scene.add(f.group);
+    flies.push(f);
+  }
+  // Ghost fly: translucent green twin for walk-imitation tracking.
+  const ghost = buildFly3D(THREE, 0x10b981);
+  ghost.group.traverse(o => {
+    if(o.isMesh){ o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = 0.45; o.castShadow = false; }
+  });
+  ghost.group.visible = false;
+  scene.add(ghost.group);
+  // Flight target orb.
+  const orb = new THREE.Mesh(
+    new THREE.SphereGeometry(0.45, 14, 12),
+    new THREE.MeshStandardMaterial({color: 0xa855f7, emissive: 0xa855f7, emissiveIntensity: 1.4})
+  );
+  orb.visible = false; scene.add(orb);
+
+  const F = window.__fb3d = {
+    ready: true, THREE, renderer, scene, camera, controls,
+    pitch, gridHelper, ball, ring, trail, points, flies, ghost, orb, PMAX,
+    lastW: 0, lastH: 0,
+    resize(){
+      const w = container.clientWidth || 760, h = container.clientHeight || 380;
+      if(w === this.lastW && h === this.lastH) return;
+      this.lastW = w; this.lastH = h;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / Math.max(1, h);
+      camera.updateProjectionMatrix();
+    }
+  };
+  F.resize();
+  window.addEventListener('resize', () => F.resize());
+}
+
+function flyLabel3D(f, roleMode){
+  if(roleMode) return {t: (f.keeper ? 'G' : 'A') + f.num, c: f.keeper ? '#fbbf24' : null};
+  return {t: String(f.num), c: null};
+}
+
+function poseFly3D(F, slot, fx, fz, angle, wing, leg, label, badgeFallback, thoraxColor){
+  slot.group.visible = true;
+  slot.group.position.set(fx, 0, fz);
+  slot.group.rotation.y = Math.atan2(Math.cos(angle + Math.PI / 2), Math.sin(angle + Math.PI / 2));
+  const flap = 0.3 + Math.sin(wing) * 0.45;
+  slot.wings.L.rotation.z = -flap;
+  slot.wings.R.rotation.z = flap;
+  slot.legs.forEach(l => { l.pivot.rotation.x = Math.sin(leg + l.off) * 0.5; });
+  if(slot.thoraxMat && slot._thx !== thoraxColor){
+    slot.thoraxMat.color.set(thoraxColor);
+    slot._thx = thoraxColor;
+  }
+  slot.setBadge(label, badgeFallback);
+}
+
+function syncThree3D(state){
+  const F = window.__fb3d;
+  if(!F || !F.ready || viewMode !== '3d') return;
+  const wrap = document.getElementById('test3DWrap');
+  if(!wrap || wrap.style.display === 'none') return;
+  if(wrap.clientWidth === 0) return;
+  F.resize();
+  const THREE = F.THREE;
+
+  if(state.task === 'football_vs'){
+    F.pitch.visible = true; F.gridHelper.visible = false; F.orb.visible = false; F.ghost.group.visible = false;
+    F.trail.visible = true; F.points.visible = true;
+    const west = state.attackers || [], east = state.goalies || [];
+    const all = west.concat(east);
+    all.forEach((f, i) => {
+      const slot = F.flies[i];
+      const isWest = i < west.length;
+      const lbl = flyLabel3D(f, !!state.roleMode);
+      poseFly3D(F, slot, WX3D(f.x), WZ3D(f.y), f.angle, f.wing, f.leg,
+        lbl.t, lbl.c || (isWest ? '#fcd34d' : '#7dd3fc'), isWest ? 0xd97706 : 0x0284c7);
+    });
+    for(let i = all.length; i < F.flies.length; i++) F.flies[i].group.visible = false;
+    // Ball + possession ring + trail.
+    if(state.ball){
+      F.ball.visible = true;
+      F.ball.position.set(WX3D(state.ball.x), 0.53, WZ3D(state.ball.y));
+      if(state.poss === 'west' || state.poss === 'east'){
+        F.ring.visible = true;
+        F.ring.material.color.set(state.poss === 'west' ? 0xfbbf24 : 0x38bdf8);
+        F.ring.position.copy(F.ball.position);
+      } else F.ring.visible = false;
+    }
+    const tp = F.trail.geometry.attributes.position.array;
+    const n = Math.min(18, (state.trail || []).length);
+    for(let i = 0; i < 18; i++){
+      const p = (state.trail || [])[(state.trail || []).length - n + Math.min(i, n - 1)] || state.ball || {x: 380, y: 190};
+      tp[i * 3] = WX3D(p.x); tp[i * 3 + 1] = 0.6; tp[i * 3 + 2] = WZ3D(p.y);
+    }
+    F.trail.geometry.attributes.position.needsUpdate = true;
+    // Confetti.
+    const pp = F.points.geometry.attributes.position.array;
+    const pc = F.points.geometry.attributes.color.array;
+    const col = new THREE.Color();
+    for(let i = 0; i < F.PMAX; i++){
+      const p = (state.particles || [])[i];
+      if(p){
+        pp[i * 3] = WX3D(p.x); pp[i * 3 + 1] = 1.2 + (1 - p.life) * 3.0; pp[i * 3 + 2] = WZ3D(p.y);
+        col.set(p.col || '#ffffff');
+      } else { pp[i * 3 + 1] = -50; col.set('#000000'); }
+      pc[i * 3] = col.r; pc[i * 3 + 1] = col.g; pc[i * 3 + 2] = col.b;
+    }
+    F.points.geometry.attributes.position.needsUpdate = true;
+    F.points.geometry.attributes.color.needsUpdate = true;
+    // Camera follows the ball, orbit offset preserved.
+    const fb = document.getElementById('followBall');
+    if(fb && fb.checked && state.ball){
+      F.controls.target.lerp(new THREE.Vector3(WX3D(state.ball.x), 0.5, WZ3D(state.ball.y)), 0.08);
+    } else {
+      F.controls.target.lerp(new THREE.Vector3(0, 0, 0), 0.05);
+    }
+  } else {
+    // Non-football tasks: single 3D fly (+ ghost twin / target orb) on a grid.
+    F.pitch.visible = false; F.gridHelper.visible = true;
+    F.ball.visible = false; F.ring.visible = false; F.trail.visible = false; F.points.visible = false;
+    F.flies.forEach(fl => { fl.group.visible = false; });
+    const fl = state.fly;
+    if(fl){
+      const slot = F.flies[4];
+      poseFly3D(F, slot, WX3D(fl.x || 380), WZ3D(fl.y || 190), Math.PI / 2, fl.wing || 0, fl.leg || 0,
+        'FLY', '#5b7fff', 0x10b981);
+    }
+    if(state.ghost){
+      F.ghost.group.visible = true;
+      F.ghost.group.position.set(WX3D(state.ghost.x), 0, WZ3D(state.ghost.y));
+      F.ghost.group.rotation.y = Math.PI / 2;
+      F.ghost.legs.forEach(l => { l.pivot.rotation.x = Math.sin((state.ghost.leg || 0) + l.off) * 0.5; });
+      F.ghost.setBadge('REF', '#a855f7');
+    } else F.ghost.group.visible = false;
+    if(state.target){
+      F.orb.visible = true;
+      F.orb.position.set(WX3D(state.target.x), 1.5, WZ3D(state.target.y));
+    } else F.orb.visible = false;
+    F.controls.target.lerp(new THREE.Vector3(slotSafeX(), 0.5, 0), 0.05);
+    function slotSafeX(){ return (fl && fl.x !== undefined) ? WX3D(fl.x) : 0; }
+  }
+  F.controls.update();
+  F.renderer.render(F.scene, F.camera);
+}
+
 // ===== Tab Switching =====
 function switchMainTab(tab){
   document.querySelectorAll('.mtab').forEach(t=>t.classList.toggle('active',t.dataset.tab===tab));
@@ -1886,6 +2584,7 @@ function switchMainTab(tab){
   if(tab==='results'){
     setTimeout(()=>{
       resizeCharts();
+      if(window.__fb3d && window.__fb3d.resize) window.__fb3d.resize();
       if(!activeTestState) runNewTestRollout(42, 'Initial Test: ' + (TK[cur]?TK[cur].l:cur), simRet);
     }, 60);
   }
@@ -1920,12 +2619,12 @@ function beginTraining(resume){
   document.getElementById('sTxt').textContent='Training';
   document.getElementById('cfgBadge').textContent='Running';
   document.getElementById('resBadge').textContent='LIVE';
-  document.getElementById('res-task-lbl').textContent=TK[cur].l;
+  document.getElementById('res-task-lbl').textContent=TK[cur].l+' · '+curAgent.toUpperCase();
   if(!resume){
-    addL('Launching training run ('+TK[cur].l+')...','if');
+    addL('Launching training run ('+TK[cur].l+' · '+curAgent.toUpperCase()+')...','if');
   } else {
     const ck=g('ckLoad');
-    addL('⏵ Continuing training ('+TK[cur].l+') from return '+simRet.toFixed(4)+(ck?' · checkpoint: '+ck:' · tip: fill "Load From" + Save .py for a real resume run'),'ok');
+    addL('⏵ Continuing training ('+TK[cur].l+' · '+curAgent.toUpperCase()+') from return '+simRet.toFixed(4)+(ck?' · checkpoint: '+ck:' · tip: fill "Load From" + Save .py for a real resume run'),'ok');
   }
   switchMainTab('results');
   setTimeout(resizeCharts,120);
@@ -2067,6 +2766,8 @@ document.addEventListener('DOMContentLoaded',()=>{
   setTimeout(()=>{
     runNewTestRollout(42, 'Initial Test: ' + (TK[cur]?TK[cur].l:cur), 0.01);
   }, 100);
+  // Prefer the 3D stadium viewport; falls back to 2D if the CDN is offline.
+  setTimeout(()=>{ ensureThree3D(); }, 400);
 });
 </script>
 </body>

@@ -2,12 +2,16 @@
 
 Usage:
     python rollout_football_video.py [--out football_rollout.mp4]
-                                     [--time-limit 4.0] [--seed 0]
-                                     [--opponent static] [--fps 30]
+                                      [--time-limit 4.0] [--seed 0]
+                                      [--opponent static] [--fps 30]
+
+    Directed 3D match (cartoon brain, MuJoCo bodies, no training needed):
+    python rollout_football_video.py --mode match --n-per-team 3
+        --formation-mode random --time-limit 20 --out videos/match3v3.mp4
 
 After training, point --policy-npz to a saved policy checkpoint (e.g.
 runs/ars1/best.npz); the rendering loop will load and record the
-trained behavior.
+trained behavior (--mode policy).
 """
 
 import argparse
@@ -63,13 +67,105 @@ def draw_scoreboard(frame, task):
         return frame
 
 
+def _render_match(args):
+    """Directed 3D match: 2D brain + kinematic MuJoCo playback, no stepping."""
+    try:
+        from .football_match import (
+            MatchDirector,
+            advance_legs,
+            apply_frame,
+            build_leg_maps,
+            draw_match_scoreboard,
+        )
+    except ImportError:
+        from football_match import (
+            MatchDirector,
+            advance_legs,
+            apply_frame,
+            build_leg_maps,
+            draw_match_scoreboard,
+        )
+
+    from flybody.fly_envs import football_vs
+
+    env = football_vs(
+        opponent_mode="static",
+        time_limit=3600.0,
+        n_per_team=args.n_per_team,
+        formation_mode=args.formation_mode,
+        random_state=np.random.RandomState(args.seed),
+    )
+    leg_maps = build_leg_maps(env.task)
+    spawn_z = float(env.task._attacker.upright_pose.xpos[2])
+    camera_id = 0
+    for cam_name in ("overview", "football/overview"):
+        try:
+            camera_id = env.physics.model.name2id(cam_name, "camera")
+            break
+        except KeyError:
+            pass
+
+    frame_dt = 1.0 / args.fps
+    frames = []
+    sim_t = 0.0
+    seed = args.seed
+    while sim_t < args.time_limit:
+        env.reset()
+        director = MatchDirector(env.task, seed=seed)
+        seed += 1
+        apply_frame(env.physics, env.task, director, leg_maps, frame_dt, spawn_z)
+        ep_t = 0.0
+        while sim_t < args.time_limit and ep_t < 30.0:
+            result = director.step(frame_dt)
+            advance_legs(director, frame_dt)
+            apply_frame(env.physics, env.task, director, leg_maps, frame_dt, spawn_z)
+            frames.append(
+                draw_match_scoreboard(
+                    env.physics.render(
+                        height=args.height, width=args.width, camera_id=camera_id
+                    ),
+                    director,
+                )
+            )
+            sim_t += frame_dt
+            ep_t += frame_dt
+            if sim_t >= args.time_limit:
+                break
+            if result is not None:
+                # Celebrate the goal briefly, then re-kick (new formation).
+                for _ in range(args.fps):
+                    if sim_t >= args.time_limit:
+                        break
+                    frames.append(
+                        draw_match_scoreboard(
+                            env.physics.render(
+                                height=args.height,
+                                width=args.width,
+                                camera_id=camera_id,
+                            ),
+                            director,
+                        )
+                    )
+                    sim_t += frame_dt
+                break
+        print(
+            f"t={sim_t:.1f}s score={director.score} formations={director._task.formation}",
+            flush=True,
+        )
+
+    imageio.mimsave(args.out, frames, fps=args.fps)
+    print(f"saved {args.out}: {len(frames)} frames")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--out", default="videos/football_rollout.mp4")
     parser.add_argument("--time-limit", type=float, default=20.0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument(
-        "--opponent", default="static", choices=["static", "scripted", "self_play"]
+        "--opponent",
+        default="static",
+        choices=["static", "scripted", "self_play", "role_self_play"],
     )
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument(
@@ -83,11 +179,25 @@ def main():
         help="Trained policy from train_football_ars.py (runs/<name>/best.npz).",
     )
     parser.add_argument("--n-per-team", type=int, default=1, help="Flies per side.")
+    parser.add_argument(
+        "--mode",
+        default="policy",
+        choices=["policy", "match"],
+        help="policy: step the env with a policy (needs training for play); "
+        "match: directed 3D match, no training needed.",
+    )
+    parser.add_argument(
+        "--formation-mode", default="fixed", choices=["fixed", "random"]
+    )
     args = parser.parse_args()
     if os.path.dirname(args.out):
         os.makedirs(os.path.dirname(args.out), exist_ok=True)
 
     from flybody.fly_envs import football_vs
+
+    if args.mode == "match":
+        _render_match(args)
+        return
 
     env = football_vs(
         opponent_mode=args.opponent,

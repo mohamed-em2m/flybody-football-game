@@ -83,6 +83,14 @@ def main():
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--time-limit", type=float, default=3.0)
     parser.add_argument(
+        "--opponent",
+        default="static",
+        choices=["static", "scripted", "self_play", "role_self_play"],
+        help="FootballVs opponent mode. role_self_play trains 1 attacker + "
+        "1 goalkeeper per team (forces --n-per-team 2).",
+    )
+    parser.add_argument("--n-per-team", type=int, default=1)
+    parser.add_argument(
         "--ball-start",
         type=float,
         nargs=2,
@@ -105,7 +113,14 @@ def main():
     # Probe one env for shapes / keys / bounds.
     from flybody.fly_envs import football_vs as make_env
 
-    probe = make_env(opponent_mode="static", time_limit=args.time_limit)
+    if args.opponent == "role_self_play" and args.n_per_team != 2:
+        raise ValueError("role_self_play trains 1 attacker + 1 goalkeeper "
+                         "per team, so --n-per-team must be 2")
+    probe = make_env(
+        opponent_mode=args.opponent,
+        n_per_team=args.n_per_team,
+        time_limit=args.time_limit,
+    )
     ts = probe.reset()
     keys = sorted(ts.observation.keys())
     obs_dim = len(flatten_obs(ts.observation, keys))
@@ -133,7 +148,8 @@ def main():
             csv.writer(f).writerow(["iter", "mean_ret", "best_ret", "sigma_r"])
 
     env_kwargs = dict(
-        opponent_mode="static",
+        opponent_mode=args.opponent,
+        n_per_team=args.n_per_team,
         time_limit=args.time_limit,
         ball_start=tuple(args.ball_start),
         attacker_spawn=tuple(args.attacker_start),

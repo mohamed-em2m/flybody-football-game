@@ -13,6 +13,14 @@ Modes:
       its own callable. Anything without a policy holds still.
   - opponent_mode='self_play': the agent controls every fly. Action space
       = concat [west_0..west_{N-1}, east_0..east_{N-1}] (N*59 each side).
+  - opponent_mode='role_self_play': 2v2 with one attacker + one goalkeeper
+      per team (requires n_per_team=2). Action space = concat
+      [west_0, west_1, east_0, east_1] (4*59). west_0/east_0 are the
+      attackers, west_1/east_1 are the goalkeepers. Per-fly rewards come
+      from ``get_role_rewards`` (attacker-shaped vs goalkeeper-shaped
+      dense + role-routed event bonuses); ``get_side_rewards`` returns the
+      per-side mean of its two roles and ``get_reward`` the west mean,
+      so legacy callers keep working.
 
 Teams:
   - ``n_per_team=1`` (default) is exactly the legacy setup: flies named
@@ -56,6 +64,10 @@ from flybody.utils import any_substr_in_str
 
 
 _EVENT_NAMES = ("none", "pass", "shot", "interception", "save", "goal")
+_OPPONENT_MODES = ("static", "scripted", "self_play", "role_self_play")
+_SELF_PLAY_MODES = ("self_play", "role_self_play")
+# Role per index inside a team for role_self_play (n_per_team must be 2).
+_ROLE_BY_INDEX = ("attacker", "goalkeeper")
 _TEAM_COLORS = {
     "west": (0.85, 0.18, 0.18, 1.0),
     "east": (0.18, 0.38, 0.95, 1.0),
@@ -284,14 +296,17 @@ class FootballVs(composer.Task):
             disable_wings: Retract and disable wings on all flies.
             joint_filter: Timescale of joint actuator filter. 0: disabled.
             adhesion_filter: Timescale of adhesion actuator filter.
-            opponent_mode: 'static', 'scripted', or 'self_play'.
+            opponent_mode: 'static', 'scripted', 'self_play' or
+                'role_self_play' (2v2 attacker+goalkeeper per team, see
+                class docstring).
             goalie_policy: Optional callable(step, physics) -> east_0 action
                 used in scripted mode.
             extra_policies: Optional {fly_name: callable} for scripted mode.
                 Any fly without a policy holds still.
             n_per_team: Flies per side. 1 keeps legacy attacker/goalie
                 names; N>1 uses west_{i}/east_{i} names with an auto
-                formation.
+                formation. role_self_play requires n_per_team=2
+                (index 0 = attacker, index 1 = goalkeeper).
             west_spawns: Optional [(x, y)] * n_per_team overrides.
             east_spawns: Optional [(x, y)] * n_per_team overrides.
             formation_mode: 'fixed' (same kickoff every episode: explicit
@@ -340,13 +355,19 @@ class FootballVs(composer.Task):
                 nearest-fly vectors. Auto-enabled when n_per_team > 1.
             observables_options: Passed to walker observables set_options.
         """
-        if opponent_mode not in ("static", "scripted", "self_play"):
+        if opponent_mode not in _OPPONENT_MODES:
             raise ValueError(
-                "opponent_mode must be 'static', 'scripted' or 'self_play'"
+                "opponent_mode must be one of "
+                f"{list(_OPPONENT_MODES)}"
             )
         n_per_team = int(n_per_team)
         if n_per_team < 1:
             raise ValueError("n_per_team must be >= 1")
+        if opponent_mode == "role_self_play" and n_per_team != 2:
+            raise ValueError(
+                "role_self_play requires n_per_team=2 "
+                "(one attacker + one goalkeeper per team)"
+            )
         self._n_per_team = n_per_team
         if formation_mode not in ("fixed", "random"):
             raise ValueError("formation_mode must be 'fixed' or 'random'")
@@ -418,6 +439,7 @@ class FootballVs(composer.Task):
         self._last_kick = None  # (side, fly_name, step, vel)
         self._pass_credited_for = -(10**9)  # Kick step already credited.
         self._pending_bonus = {"west": 0.0, "east": 0.0}
+        self._pending_role_bonus = {}
         self._last_event = ("none", None, -(10**9))
         self._last_intercept_step = {"west": -(10**9), "east": -(10**9)}
 
@@ -460,6 +482,22 @@ class FootballVs(composer.Task):
         # Legacy compat: attacker = west_0, goalie = east_0.
         self._attacker = self._west[0]
         self._goalie = self._east[0]
+        # Role map for role_self_play: index 0 = attacker, 1 = goalkeeper.
+        # For other modes every fly is a generic 'field' role.
+        self._roles = {}
+        for i, w in enumerate(self._west):
+            self._roles[w.name] = (
+                _ROLE_BY_INDEX[i]
+                if self._opponent_mode == "role_self_play"
+                else "field"
+            )
+        for i, w in enumerate(self._east):
+            self._roles[w.name] = (
+                _ROLE_BY_INDEX[i]
+                if self._opponent_mode == "role_self_play"
+                else "field"
+            )
+        self._pending_role_bonus = {w.name: 0.0 for w in self._fly_order}
         for w in self._fly_order:
             if observables_options is not None:
                 w.observables.set_options(observables_options)
@@ -573,6 +611,12 @@ class FootballVs(composer.Task):
             if len(spawns) != n:
                 raise ValueError(f"{side}_spawns must have n_per_team={n} entries")
             return spawns
+        if getattr(self, "_opponent_mode", None) == "role_self_play" and n == 2:
+            # Index 0 = attacker (forward), index 1 = goalkeeper (home).
+            # y-offsets keep the two roles from overlapping at kickoff.
+            if side == "west":
+                return [(-0.8, -0.25), (-arena.field_length / 2.0 + 0.5, 0.25)]
+            return [(0.8, 0.25), (arena.field_length / 2.0 - 0.5, -0.25)]
         if n == 1:
             if side == "west":
                 return [self._attacker_spawn]
@@ -691,6 +735,33 @@ class FootballVs(composer.Task):
         """(event_name, side, step) of the latest game event."""
         return self._last_event
 
+    @property
+    def roles(self):
+        """{fly_name: 'attacker' | 'goalkeeper' | 'field'}.
+
+        'attacker'/'goalkeeper' only in role_self_play mode (index 0/1
+        of each team); every other mode reports 'field' for all flies.
+        """
+        return dict(self._roles)
+
+    def _side_of(self, fly_name):
+        if fly_name in self._roles:
+            for side, flies in self._flies.items():
+                if any(w.name == fly_name for w in flies):
+                    return side
+        return None
+
+    def _role_home(self, side):
+        """Goal-mouth anchor the goalkeeper should guard (own goal)."""
+        gx = self._arena.west_goal_x if side == "west" else self._arena.east_goal_x
+        return np.array([gx, 0.0, self._arena.ball_radius])
+
+    def _is_out(self, physics, fly_name):
+        hx = self._arena.field_length / 2.0 + self._out_of_bounds_margin
+        hy = self._arena.field_width / 2.0 + self._out_of_bounds_margin
+        pos = np.asarray(self._walker_pos(physics, self._fly_by_name[fly_name]))
+        return bool(abs(pos[0]) > hx or abs(pos[1]) > hy)
+
     def initialize_episode_mjcf(self, random_state):
         if hasattr(self._arena, "regenerate"):
             self._arena.regenerate(random_state)
@@ -714,6 +785,7 @@ class FootballVs(composer.Task):
         self._last_kick = None
         self._pass_credited_for = -(10**9)
         self._pending_bonus = {"west": 0.0, "east": 0.0}
+        self._pending_role_bonus = {w.name: 0.0 for w in self._fly_order}
         self._last_event = ("none", None, -(10**9))
         self._last_intercept_step = {"west": -(10**9), "east": -(10**9)}
 
@@ -783,9 +855,10 @@ class FootballVs(composer.Task):
         self._step_counter += 1
         # Fresh event bonuses every control step; get_*_reward only reads.
         self._pending_bonus = {"west": 0.0, "east": 0.0}
+        self._pending_role_bonus = {w.name: 0.0 for w in self._fly_order}
         self._detect_events(physics)
 
-        if self._opponent_mode == "self_play":
+        if self._opponent_mode in _SELF_PLAY_MODES:
             dims = len(action) // (2 * self._n_per_team)
             chunks = [
                 action[i * dims : (i + 1) * dims] for i in range(2 * self._n_per_team)
@@ -849,7 +922,7 @@ class FootballVs(composer.Task):
 
     def action_spec(self, physics):
         a_spec = self._attacker.get_action_spec(physics)
-        if self._opponent_mode != "self_play":
+        if self._opponent_mode not in _SELF_PLAY_MODES:
             return a_spec
         parts_min, parts_max = [a_spec.minimum], [a_spec.maximum]
         for w in self._fly_order[1:]:
@@ -920,8 +993,19 @@ class FootballVs(composer.Task):
             and self._pass_credited_for != kstep
         ):
             self._pending_bonus[side] += self._pass_bonus
+            # Role routing: kicker (passer) and receiver share the credit
+            # in role mode; otherwise the team bonus is enough.
+            if self._opponent_mode == "role_self_play":
+                self._pending_role_bonus[kicker] += self._pass_bonus / 2.0
+                self._pending_role_bonus[fly_name] += self._pass_bonus / 2.0
             self._pass_credited_for = kstep
             self._record_event("pass", side)
+
+    def _credit_role(self, side, fly_name, amount):
+        """Add a team bonus plus a per-fly role bonus for the same event."""
+        self._pending_bonus[side] += amount
+        if self._opponent_mode == "role_self_play":
+            self._pending_role_bonus[fly_name] += amount
 
     def _detect_events(self, physics):
         """Kick/pass/shot/interception/save detection, once per step."""
@@ -950,7 +1034,7 @@ class FootballVs(composer.Task):
                     )
                 )
                 if speed > self._shot_speed and cos_ang > np.cos(self._shot_cone):
-                    self._pending_bonus[kside] += self._shot_bonus
+                    self._credit_role(kside, kicker, self._shot_bonus)
                     self._record_event("shot", kside)
                 # Save: redirecting a ball that was heading into your own
                 # goal while it is in your defensive third.
@@ -962,7 +1046,7 @@ class FootballVs(composer.Task):
                     (prev_vel[0] < -0.5) if kside == "west" else (prev_vel[0] > 0.5)
                 )
                 if in_own_third and was_own_way:
-                    self._pending_bonus[kside] += self._save_bonus
+                    self._credit_role(kside, kicker, self._save_bonus)
                     self._record_event("save", kside)
 
         # --- Possession: nearest fly inside the radius owns the ball. ---
@@ -979,7 +1063,7 @@ class FootballVs(composer.Task):
                     and (self._step_counter - self._last_intercept_step[poss])
                     > self._interception_cooldown
                 ):
-                    self._pending_bonus[poss] += self._interception_bonus
+                    self._credit_role(poss, poss_fly, self._interception_bonus)
                     self._last_intercept_step[poss] = self._step_counter
                     self._record_event("interception", poss)
             elif poss is not None:
@@ -1044,6 +1128,111 @@ class FootballVs(composer.Task):
 
         return np.array([approach, ball_to_goal, progress, kick, chase_vel])
 
+    def _attacker_dense(self, physics, fly_name, side):
+        """Attacker shaping anchored on one fly (not the nearest)."""
+        fly = self._fly_by_name[fly_name]
+        ball_pos, ball_vel = self._ball_state(physics)
+        goal = self._opp_goal(side)
+        goal_dir_sign = 1.0 if side == "west" else -1.0
+        fly_pos = self._walker_pos(physics, fly)
+
+        approach = float(np.exp(-3.0 * np.linalg.norm(fly_pos - ball_pos)))
+        d_ball_goal = float(np.linalg.norm(ball_pos - goal))
+        ball_to_goal = float(np.exp(-1.5 * d_ball_goal))
+        progress = float(np.tanh(self._init_goal_dist_side[side] - d_ball_goal))
+        kick = float(np.tanh(3.0 * ball_vel[0] * goal_dir_sign))
+        root_vel = np.asarray(physics.bind(self._root_joints[fly_name]).qvel[:3])
+        to_ball = ball_pos - fly_pos
+        chase_vel = float(
+            np.tanh(2.0 * np.dot(root_vel, to_ball / (np.linalg.norm(to_ball) + 1e-8)))
+        )
+        return np.array([approach, ball_to_goal, progress, kick, chase_vel])
+
+    def _goalie_dense(self, physics, fly_name, side):
+        """Goalkeeper shaping: guard home + clear danger.
+
+        Five factors parallel to the attacker vector so scales match:
+        [home_position, approach, ball_away_from_own_goal, clear_vel,
+        chase_vel]. home_position keeps the keeper near its own mouth;
+        approach still rewards stepping to a nearby ball; ball_away pays
+        when the ball is far from its own goal; clear_vel pays when the
+        ball moves away from its own goal (toward the opponent goal).
+        """
+        fly = self._fly_by_name[fly_name]
+        ball_pos, ball_vel = self._ball_state(physics)
+        fly_pos = self._walker_pos(physics, fly)
+        home = self._role_home(side)
+        goal_dir_sign = 1.0 if side == "west" else -1.0
+
+        home_position = float(np.exp(-2.0 * np.linalg.norm(fly_pos - home)))
+        approach = float(np.exp(-3.0 * np.linalg.norm(fly_pos - ball_pos)))
+        d_ball_own = float(np.linalg.norm(ball_pos - home))
+        ball_away = float(1.0 - np.exp(-1.5 * d_ball_own))
+        clear_vel = float(np.tanh(3.0 * ball_vel[0] * goal_dir_sign))
+        root_vel = np.asarray(physics.bind(self._root_joints[fly_name]).qvel[:3])
+        to_ball = ball_pos - fly_pos
+        chase_vel = float(
+            np.tanh(2.0 * np.dot(root_vel, to_ball / (np.linalg.norm(to_ball) + 1e-8)))
+        )
+        return np.array(
+            [home_position, approach, ball_away, clear_vel, chase_vel]
+        )
+
+    def _role_dense(self, physics, fly_name, side):
+        role = self._roles.get(fly_name, "field")
+        if role == "goalkeeper":
+            return self._goalie_dense(physics, fly_name, side)
+        return self._attacker_dense(physics, fly_name, side)
+
+    def get_role_rewards(self, physics):
+        """Per-fly reward for role_self_play training.
+
+        Attackers use attacker shaping (chase + shoot + team progress);
+        goalkeepers use goalkeeper shaping (guard home + clear). Event
+        bonuses are role-routed (shot/pass -> attacker involved,
+        save/interception -> saver/taker) via _pending_role_bonus, and
+        goals/concedes pay team-wide to both roles of the side.
+        Out-of-bounds penalizes the fly that left, not its teammate.
+        """
+        out = {}
+        for side in ("west", "east"):
+            for w in self._flies[side]:
+                role = self._roles.get(w.name, "field")
+                if role == "goalkeeper":
+                    dense_vec = self._goalie_dense(physics, w.name, side)
+                    dense = float(
+                        1.0 * dense_vec[0]
+                        + 0.5 * dense_vec[1]
+                        + 1.0 * dense_vec[2]
+                        + 1.0 * dense_vec[3]
+                        + 0.5 * dense_vec[4]
+                    )
+                else:
+                    dense_vec = self._attacker_dense(physics, w.name, side)
+                    dense = float(
+                        1.0 * dense_vec[0]
+                        + 1.0 * dense_vec[1]
+                        + 1.0 * dense_vec[2]
+                        + 1.0 * dense_vec[3]
+                        + 0.5 * dense_vec[4]
+                    )
+                sparse = float(self._pending_role_bonus.get(w.name, 0.0))
+                if side == "west":
+                    if self._scored_east:
+                        sparse += self._goal_bonus
+                    if self._scored_west:
+                        sparse -= self._concede_penalty
+                else:
+                    if self._scored_west:
+                        sparse += self._goal_bonus
+                    if self._scored_east:
+                        sparse -= self._concede_penalty
+                if self._is_out(physics, w.name):
+                    sparse -= self._out_of_bounds_penalty
+                out[w.name] = dense + sparse
+        self._should_terminate = self.check_termination(physics)
+        return out
+
     def get_reward_factors(self, physics):
         """Shaped factors. Standing still scores ~0; moving the ball
         toward the east goal is the only way to earn."""
@@ -1055,6 +1244,12 @@ class FootballVs(composer.Task):
         return factors
 
     def get_reward(self, physics):
+        if self._opponent_mode == "role_self_play":
+            # Scalar legacy reward = mean of the two west roles, so
+            # single-reward loggers keep a comparable scale.
+            roles = self.get_role_rewards(physics)
+            west_roles = [roles[w.name] for w in self._west]
+            return float(sum(west_roles) / max(1, len(west_roles)))
         factors = self.get_reward_factors(physics)
         dense = float(
             1.0 * factors[0]
@@ -1073,6 +1268,15 @@ class FootballVs(composer.Task):
 
     def get_side_rewards(self, physics):
         """Per-team total reward for competitive/self-play training."""
+        if self._opponent_mode == "role_self_play":
+            # Per-side mean of its two role rewards; keeps the same
+            # {west, east} API while training role-shaped policies.
+            roles = self.get_role_rewards(physics)
+            out = {}
+            for side in ("west", "east"):
+                vals = [roles[w.name] for w in self._flies[side]]
+                out[side] = float(sum(vals) / max(1, len(vals)))
+            return out
         out = {}
         for side in ("west", "east"):
             dense_factors = self._side_dense(physics, side)
@@ -1122,12 +1326,19 @@ class FootballVs(composer.Task):
             or abs(ball_pos[1]) > self._arena.field_width / 2.0 + 1.0
         ):
             return True
-        # Flip / explosion guards (checked on west_0, as before).
+        # Flip / explosion guards. Legacy modes check west_0 only;
+        # role mode checks every fly so a flipped keeper also ends it.
+        check_walkers = (
+            self._fly_order
+            if self._opponent_mode == "role_self_play"
+            else [self._attacker]
+        )
         try:
-            att_vel = np.linalg.norm(self._attacker.observables.velocimeter(physics))
-            att_ang = np.linalg.norm(self._attacker.observables.gyro(physics))
-            if att_vel > _TERMINAL_LINVEL or att_ang > _TERMINAL_ANGVEL:
-                return True
+            for w in check_walkers:
+                w_vel = np.linalg.norm(w.observables.velocimeter(physics))
+                w_ang = np.linalg.norm(w.observables.gyro(physics))
+                if w_vel > _TERMINAL_LINVEL or w_ang > _TERMINAL_ANGVEL:
+                    return True
         except Exception:  # pylint: disable=broad-except
             pass
         if np.linalg.norm(np.asarray(physics.data.qacc)) > _TERMINAL_QACC:

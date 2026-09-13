@@ -327,3 +327,71 @@ def test_random_formation_options():
     for seed in range(4):
         env.task.initialize_episode(env.physics, np.random.RandomState(seed))
         assert env.task.formation == ("cluster", "cluster")
+
+
+def test_role_self_play_requires_2v2():
+    with pytest.raises(ValueError):
+        football_vs(opponent_mode="role_self_play", n_per_team=1, time_limit=1.0)
+    with pytest.raises(ValueError):
+        football_vs(opponent_mode="role_self_play", n_per_team=3, time_limit=1.0)
+    with pytest.raises(ValueError):
+        football_vs(opponent_mode="nope", n_per_team=2, time_limit=1.0)
+
+
+def test_role_self_play_build_and_roles():
+    env = football_vs(
+        opponent_mode="role_self_play", n_per_team=2, time_limit=1.0
+    )
+    assert env.action_spec().shape == (236,)  # 4 flies x 59.
+    env.reset()
+    assert env.task.roles == {
+        "west_0": "attacker",
+        "west_1": "goalkeeper",
+        "east_0": "attacker",
+        "east_1": "goalkeeper",
+    }
+    # Attacker starts forward, goalkeeper starts near its own goal.
+    L = env.task._arena.field_length
+    assert env.task._west_spawns[0][0] > env.task._west_spawns[1][0]
+    assert env.task._west_spawns[1][0] == -(L / 2.0 - 0.5)
+    assert env.task._east_spawns[1][0] == L / 2.0 - 0.5
+    for _ in range(10):
+        ts = env.step(np.random.uniform(-0.2, 0.2, 236))
+        assert np.isfinite(ts.reward)
+        roles = env.task.get_role_rewards(env.physics)
+        assert set(roles) == {"west_0", "west_1", "east_0", "east_1"}
+        assert all(np.isfinite(v) for v in roles.values())
+        sides = env.task.get_side_rewards(env.physics)
+        assert sides["west"] == pytest.approx(
+            (roles["west_0"] + roles["west_1"]) / 2.0
+        )
+        assert sides["east"] == pytest.approx(
+            (roles["east_0"] + roles["east_1"]) / 2.0
+        )
+
+
+def test_role_rewards_differentiate():
+    env = football_vs(
+        opponent_mode="role_self_play", n_per_team=2, time_limit=10.0
+    )
+    env.reset()
+    task = env.task
+    physics = env.physics
+    base = task.get_role_rewards(physics)
+    # Goalkeeper starts at home: moving it upfield must hurt its reward
+    # while leaving its attacker teammate (and the ball) untouched.
+    spawn_z = float(task._attacker.upright_pose.xpos[2])
+    physics.bind(task._root_joints["west_1"]).qpos = np.array(
+        [1.5, 0.0, spawn_z, 1, 0, 0, 0]
+    )
+    moved = task.get_role_rewards(physics)
+    assert moved["west_1"] < base["west_1"] - 0.1, (base, moved)
+    assert moved["west_0"] == pytest.approx(base["west_0"])
+    # Out-of-bounds is per-fly: only the fly that left pays.
+    hx = task._arena.field_length / 2.0 + task._out_of_bounds_margin + 0.5
+    physics.bind(task._root_joints["west_1"]).qpos = np.array(
+        [hx, 0.0, spawn_z, 1, 0, 0, 0]
+    )
+    oob = task.get_role_rewards(physics)
+    assert oob["west_1"] < moved["west_1"] - 0.5, (moved, oob)
+    assert oob["west_0"] == pytest.approx(moved["west_0"])

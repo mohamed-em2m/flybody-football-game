@@ -363,7 +363,10 @@ def football_vs(
     Args:
         opponent_mode: 'static' (west_0 only, 59-dim action, recommended
             to start), 'scripted' (per-fly policies via goalie_policy /
-            extra_policies), or 'self_play' (concat of every fly).
+            extra_policies), 'self_play' (concat of every fly), or
+            'role_self_play' (2v2: one attacker + one goalkeeper per team,
+            requires n_per_team=2, 236-dim action, per-fly rewards from
+            task.get_role_rewards).
         field_length: Field size along x (cm).
         field_width: Field size along y (cm).
         ball_radius: Ball radius (cm). 0.15 ~= 3mm diameter fly-scale ball.
