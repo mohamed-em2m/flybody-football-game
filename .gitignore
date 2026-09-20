@@ -5,3 +5,10 @@ __pycache__/
 
 *.egg-info
 
+# Outputs and logs
+runs/
+videos/
+logs/
+*.mp4
+*.log
+
